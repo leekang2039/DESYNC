@@ -1,0 +1,533 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Heart Tag 코어 드론</title>
+<style>
+  :root {
+    --bg: #0a0f1a;
+    --panel: rgba(12, 18, 30, 0.82);
+    --line: rgba(255, 60, 70, 0.35);
+    --text: #e9edf3;
+    --muted: #8b95a7;
+    --red: #ff2f3d;
+    --copper: #d49456;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--text);
+    font-family: "Pretendard", "Apple SD Gothic Neo", "Noto Sans KR", system-ui, sans-serif; }
+  canvas { display: block; }
+  #ui { position: fixed; top: 16px; left: 16px; right: 16px; pointer-events: none;
+    display: flex; flex-direction: column; gap: 8px; max-width: 760px; }
+  .title { font-size: 13px; letter-spacing: .14em; color: var(--muted); }
+  .title b { color: var(--text); letter-spacing: .08em; font-size: 15px; }
+  .title .tag { color: var(--red); }
+  .row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; pointer-events: auto; }
+  .row .lbl { font-size: 11px; color: var(--muted); width: 44px; letter-spacing: .1em; }
+  button { background: var(--panel); color: var(--text); border: 1px solid var(--line);
+    padding: 6px 10px; font-size: 12px; border-radius: 3px; cursor: pointer; font-family: inherit; }
+  button:hover { border-color: var(--red); }
+  button.on { background: rgba(255, 40, 55, .22); border-color: var(--red); }
+  #info { position: fixed; left: 16px; bottom: 16px; max-width: 380px; background: var(--panel);
+    border: 1px solid var(--line); border-left: 3px solid var(--red); padding: 10px 12px; font-size: 12px;
+    line-height: 1.55; pointer-events: none; }
+  #info h3 { margin: 0 0 4px; font-size: 12px; letter-spacing: .12em; }
+  #info h3 small { color: var(--muted); font-weight: 400; letter-spacing: 0; }
+  #info p { margin: 0; color: #c3cad6; }
+  #state { position: fixed; right: 16px; bottom: 16px; font-size: 11px; color: var(--muted);
+    letter-spacing: .12em; text-align: right; font-variant-numeric: tabular-nums; }
+  #state b { color: var(--red); }
+  @media (max-width: 600px) {
+    #ui { top: 10px; left: 10px; right: 10px; }
+    button { padding: 5px 8px; font-size: 11px; }
+    #info { left: 10px; right: 10px; bottom: 40px; max-width: none; }
+    #state { right: 10px; bottom: 12px; }
+  }
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<div id="ui">
+  <div class="title"><b>HEART TAG</b> · CORE DRONE <span class="tag">v21 RED/WHITE</span> · DOCK STATION</div>
+  <div class="row"><span class="lbl">보기</span>
+    <button data-view="front">정면</button><button data-view="side">옆면</button>
+    <button data-view="rear">후면</button><button data-view="dock" class="on">도크</button>
+  </div>
+  <div class="row"><span class="lbl">디테일</span>
+    <button data-detail="armor">드론 외장</button><button data-detail="core">코어 인터페이스</button>
+    <button data-detail="arm">도크 암</button><button data-detail="interior">도크 내부</button>
+    <button data-detail="rear">드론 후면</button>
+  </div>
+  <div class="row"><span class="lbl">동작</span>
+    <button id="bLaunch">이륙</button><button id="bOpen">링 개방</button>
+    <button id="bCombat">전투 전개</button><button id="bDeploy">드론 전개</button>
+    <button id="bSpin">자동 회전</button><button id="bBg">스튜디오 배경</button>
+  </div>
+</div>
+<div id="info"><h3>DOCK STATION <small>(도킹 상태)</small></h3>
+  <p>드론이 정면(코어 눈)을 하늘로 향한 채 도크 중앙 크래들에 눕습니다. 계단식 7단 링 중 안쪽 3단이 4조각으로 갈라져 출입로를 엽니다.</p></div>
+<div id="state">STATE <b id="stTxt">DOCKED</b><br><span id="bpm">072</span> BPM</div>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+
+// ───────── 기본 세팅 ─────────
+const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.0;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+const BG_DARK = new THREE.Color(0x0a0f1a), BG_STUDIO = new THREE.Color(0xc4c8cd);
+scene.background = BG_DARK.clone();
+const pmrem = new THREE.PMREMGenerator(renderer);
+scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+
+const camera = new THREE.PerspectiveCamera(38, innerWidth / innerHeight, 0.05, 100);
+camera.position.set(0, 6.8, 8.2);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 0.4, 0);
+controls.enableDamping = true;
+controls.minDistance = 0.8;
+controls.maxDistance = 25;
+
+const key = new THREE.DirectionalLight(0xffffff, 1.6); key.position.set(5, 9, 6); scene.add(key);
+const fill = new THREE.DirectionalLight(0xb8c8ff, 0.5); fill.position.set(-6, 3, -4); scene.add(fill);
+const dockGlow = new THREE.PointLight(0xff2a35, 2, 4, 2); dockGlow.position.set(0, 0.35, 0); scene.add(dockGlow);
+
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.6, 0.4, 1.0);
+composer.addPass(bloom);
+composer.addPass(new OutputPass());
+
+// ───────── 재질 ─────────
+const M = {
+  white:   new THREE.MeshStandardMaterial({ color: 0xe9ebee, roughness: 0.45, metalness: 0.05, envMapIntensity: 0.8 }),
+  white2:  new THREE.MeshStandardMaterial({ color: 0xd2d6db, roughness: 0.5, metalness: 0.05 }),
+  black:   new THREE.MeshStandardMaterial({ color: 0x15171b, roughness: 0.55, metalness: 0.6 }),
+  gun:     new THREE.MeshStandardMaterial({ color: 0x3a3e45, roughness: 0.48, metalness: 0.75 }),
+  gunDark: new THREE.MeshStandardMaterial({ color: 0x24272c, roughness: 0.55, metalness: 0.7 }),
+  copper:  new THREE.MeshStandardMaterial({ color: 0xc98a4b, roughness: 0.3, metalness: 1.0 }),
+  lens:    new THREE.MeshStandardMaterial({ color: 0x060607, roughness: 0.08, metalness: 0.9 }),
+  red:     new THREE.MeshStandardMaterial({ color: 0xff2a2a, emissive: 0xff1424, emissiveIntensity: 4 }),
+  redSoft: new THREE.MeshStandardMaterial({ color: 0xff3a3a, emissive: 0xff1424, emissiveIntensity: 1.2 }),
+  orange:  new THREE.MeshStandardMaterial({ color: 0xff8a2a, emissive: 0xff6a10, emissiveIntensity: 2.2 }),
+};
+
+// ───────── 헬퍼 ─────────
+const shapeFrom = (pts) => { const s = new THREE.Shape(); s.moveTo(...pts[0]); for (let i = 1; i < pts.length; i++) s.lineTo(...pts[i]); s.closePath(); return s; };
+function extrudeGeo(shape, depth, bevel = 0.012) {
+  return new THREE.ExtrudeGeometry(shape, { depth, bevelEnabled: bevel > 0, bevelThickness: bevel, bevelSize: bevel, bevelSegments: 2, curveSegments: 32 });
+}
+function add(parent, geo, mat, x = 0, y = 0, z = 0) { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); parent.add(m); return m; }
+const box = (p, w, h, d, mat, x, y, z) => add(p, new THREE.BoxGeometry(w, h, d), mat, x, y, z);
+// 두 점 사이 발광 스트립
+function strip(p, x1, y1, x2, y2, z, w = 0.016, mat = M.red, d = 0.012) {
+  const m = box(p, Math.hypot(x2 - x1, y2 - y1), w, d, mat, (x1 + x2) / 2, (y1 + y2) / 2, z);
+  m.rotation.z = Math.atan2(y2 - y1, x2 - x1); return m;
+}
+// 피벗 기준으로 기울어지는 장갑 패널
+const deployables = [];
+function panel(p, pts, { t = 0.045, z = 0, pivot = [0, 0], rotY = 0, rotX = 0, mat = M.white, open = 0.25 } = {}) {
+  const g = new THREE.Group();
+  g.position.set(pivot[0], pivot[1], z);
+  g.rotation.set(rotX, rotY, 0);
+  add(g, extrudeGeo(shapeFrom(pts.map(([x, y]) => [x - pivot[0], y - pivot[1]])), t), mat);
+  g.userData = { rotY, z, open, top: t + 0.014, px: pivot[0], py: pivot[1] };
+  deployables.push(g); p.add(g); return g;
+}
+
+// ───────── 드론 ─────────
+// 로컬 좌표: 긴 축 = Y(위가 노즈), 정면(코어 눈) = +Z
+const drone = new THREE.Group();
+const droneBody = new THREE.Group(); drone.add(droneBody);
+const anchors = {};
+
+const R = [[0.10, 1.0], [0.30, 0.80], [0.47, 0.50], [0.56, 0.15], [0.53, -0.25], [0.40, -0.60], [0.22, -0.90], [0.05, -1.06]];
+const outline = [...R, ...R.slice().reverse().map(([x, y]) => [-x, y])];
+const HZ = 0.22;          // 선체 반두께
+const Z0 = HZ + 0.06;     // 앞면(베벨 포함)
+
+// 선체(블랙 프레임) + 중간 건메탈 밴드
+const hull = add(droneBody, extrudeGeo(shapeFrom(outline), HZ * 2, 0.06), M.black, 0, 0, -HZ);
+const band = add(droneBody, extrudeGeo(shapeFrom(outline.map(([x, y]) => [x * 1.05, y * 1.02])), 0.1, 0.01), M.gunDark, 0, 0, -0.05);
+
+// 측면 그리블: 장갑 클래딩 + 구리 피스톤
+for (let i = 0; i < R.length - 1; i++) {
+  const [x1, y1] = R[i], [x2, y2] = R[i + 1];
+  const len = Math.hypot(x2 - x1, y2 - y1), tx = (x2 - x1) / len, ty = (y2 - y1) / len;
+  const nx = -ty, ny = tx, ang = Math.atan2(ty, tx);
+  for (const s of [1, -1]) {
+    const mx = s * ((x1 + x2) / 2 + nx * 0.07), my = (y1 + y2) / 2 + ny * 0.07;
+    const g = new THREE.Group(); g.position.set(mx, my, 0); g.rotation.z = s > 0 ? ang : Math.PI - ang; droneBody.add(g);
+    if (i >= 1 && i <= 5) {
+      box(g, len * 0.82, 0.05, 0.22, M.white2, 0, 0, 0.13 * (i % 2 ? 1 : -1));
+      box(g, len * 0.6, 0.05, 0.18, M.gun, 0, -0.01, -0.13 * (i % 2 ? 1 : -1));
+      if (i % 2) box(g, len * 0.35, 0.012, 0.03, M.red, 0, 0.028, 0.13);
+    }
+    const c = add(droneBody, new THREE.CylinderGeometry(0.022, 0.022, 0.5, 12), M.copper, s * (x1 + nx * 0.05), y1 + ny * 0.05, 0);
+    c.rotation.x = Math.PI / 2;
+  }
+}
+
+// 반쪽(오른쪽) 장갑 세트 — 앞/뒤 공용
+function buildHalf(face, front) {
+  const H = new THREE.Group(); face.add(H);
+  // a. 어깨
+  const a = panel(H, [[0.17, 0.78], [0.30, 0.78], [0.44, 0.48], [0.40, 0.36], [0.22, 0.40], [0.18, 0.55]], { z: Z0, pivot: [0.2, 0.55], rotY: 0.25, open: 0.35 });
+  strip(a, 0.10, 0.17, 0.18, 0.0, a.userData.top, 0.014);
+  // b. 중간 외곽 (가장 큰 판)
+  const b = panel(H, [[0.36, 0.32], [0.52, 0.30], [0.58, 0.05], [0.55, -0.22], [0.40, -0.18], [0.34, 0.05]], { z: Z0, pivot: [0.36, 0.05], rotY: 0.45, open: 0.5 });
+  strip(b, 0.02, 0.22, -0.01, -0.18, b.userData.top, 0.014);
+  box(b, 0.05, 0.012, 0.01, M.orange, 0.14, 0.2, b.userData.top);
+  if (front) { anchors.armor = new THREE.Object3D(); anchors.armor.position.set(0.1, 0, 0.05); b.add(anchors.armor); H.userData.decalHost = b; }
+  // c. 하단 외곽
+  const c = panel(H, [[0.30, -0.26], [0.46, -0.28], [0.40, -0.58], [0.24, -0.84], [0.18, -0.70]], { z: Z0, pivot: [0.26, -0.5], rotY: 0.35, open: 0.4 });
+  strip(c, 0.13, 0.2, 0.02, -0.28, c.userData.top, 0.012);
+  // d. 하단 안쪽 (꼬리로 수렴)
+  const d = panel(H, [[0.05, -0.36], [0.20, -0.32], [0.24, -0.42], [0.16, -0.80], [0.05, -0.98]], { z: Z0, pivot: [0.05, -0.6], rotY: 0.12, mat: M.white2, open: 0.15 });
+  // e. 코어 옆 건메탈 레일
+  panel(H, [[0.22, 0.34], [0.33, 0.30], [0.32, -0.14], [0.25, -0.22]], { z: Z0 - 0.01, pivot: [0.22, 0], rotY: 0.18, mat: M.gun, open: 0.1 });
+  // 꼬리 발광선 / 코어 옆 발광선
+  strip(H, 0.035, -0.42, 0.035, -0.98, Z0 + 0.03, 0.014);
+  strip(H, 0.235, 0.36, 0.235, -0.16, Z0 + 0.03, 0.014);
+  strip(H, 0.30, -0.24, 0.47, -0.27, Z0 + 0.02, 0.012, M.orange);
+  // 구리 피스톤(패널 사이)
+  const p1 = add(H, new THREE.CylinderGeometry(0.016, 0.016, 0.2, 10), M.copper, 0.43, 0.36, Z0 - 0.04); p1.rotation.z = 0.9;
+  const p2 = add(H, new THREE.CylinderGeometry(0.016, 0.016, 0.18, 10), M.copper, 0.37, -0.25, Z0 - 0.04); p2.rotation.z = -1.2;
+  box(H, 0.04, 0.06, 0.04, M.copper, 0.16, 0.45, Z0 + 0.02);
+  box(H, 0.03, 0.03, 0.03, M.orange, 0.13, -0.3, Z0 + 0.02);
+  return H;
+}
+
+function buildFace(front) {
+  const F = new THREE.Group(); droneBody.add(F);
+  if (!front) F.rotation.y = Math.PI;
+  const Hr = buildHalf(F, front);
+  const Hl = buildHalf(F, false); Hl.scale.x = -1;
+  // 노즈 패널
+  const n = panel(F, [[-0.11, 0.97], [0.11, 0.97], [0.19, 0.62], [0.15, 0.5], [-0.15, 0.5], [-0.19, 0.62]], { z: Z0, pivot: [0, 0.5], rotX: -0.12, open: 0 });
+  n.userData.lift = 0.06;
+  strip(n, 0, 0.12, 0, 0.36, n.userData.top, 0.018);
+  box(n, 0.12, 0.05, 0.01, M.black, 0, 0.06, n.userData.top);
+  box(n, 0.04, 0.03, 0.012, M.orange, 0.07, 0.25, n.userData.top);
+  if (front) {
+    // 코어 하우징 + 다이아몬드 코어(눈)
+    add(F, extrudeGeo(shapeFrom([[0, 0.52], [0.2, 0.38], [0.22, -0.1], [0, -0.32], [-0.22, -0.1], [-0.2, 0.38]]), 0.04), M.gun, 0, 0, Z0);
+    add(F, extrudeGeo(shapeFrom([[0, 0.46], [0.16, 0.35], [0.17, -0.08], [0, -0.25], [-0.17, -0.08], [-0.16, 0.35]]), 0.02, 0.006), M.black, 0, 0, Z0 + 0.05);
+    const dia = shapeFrom([[0, 0.42], [0.15, 0.12], [0, -0.2], [-0.15, 0.12]]);
+    dia.holes.push(shapeFrom([[0, 0.34], [-0.1, 0.12], [0, -0.11], [0.1, 0.12]]));
+    add(F, extrudeGeo(dia, 0.02, 0.004), M.red, 0, 0, Z0 + 0.075);
+    add(F, extrudeGeo(shapeFrom([[-0.075, 0.2], [0.075, 0.2], [0, 0.03]]), 0.01, 0.003), M.redSoft, 0, 0, Z0 + 0.08);
+    strip(F, 0, 0.02, 0, -0.12, Z0 + 0.09, 0.012);
+    box(F, 0.05, 0.035, 0.02, M.red, 0, 0.47, Z0 + 0.07);
+    for (let i = 0; i < 6; i++) { const y = 0.3 - i * 0.07; box(F, 0.02, 0.025, 0.02, M.copper, 0.205, y, Z0 + 0.05); box(F, 0.02, 0.025, 0.02, M.copper, -0.205, y, Z0 + 0.05); }
+    anchors.core = new THREE.Object3D(); anchors.core.position.set(0, 0.1, Z0 + 0.08); F.add(anchors.core);
+    // HT 데칼
+    const cv = document.createElement('canvas'); cv.width = cv.height = 256; const g = cv.getContext('2d');
+    g.fillStyle = '#2a2d33'; g.font = 'bold 120px system-ui, sans-serif'; g.textAlign = 'center'; g.fillText('HT', 128, 140);
+    g.font = 'bold 26px system-ui, sans-serif'; g.fillText('HEART TAG', 128, 182);
+    g.beginPath(); g.moveTo(98, 205); g.lineTo(158, 205); g.lineTo(128, 240); g.closePath(); g.fill();
+    const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 8;
+    const decal = new THREE.Mesh(new THREE.PlaneGeometry(0.15, 0.15), new THREE.MeshStandardMaterial({ map: tex, transparent: true, roughness: 0.5 }));
+    decal.position.set(0.09, -0.02, Hr.userData.decalHost.userData.top + 0.002); Hr.userData.decalHost.add(decal);
+  } else {
+    // 후면 원형 추진 코어
+    const C = new THREE.Group(); C.position.set(0, 0.05, Z0 + 0.02); F.add(C);
+    const disc = (r, h, mat, z) => { const m = add(C, new THREE.CylinderGeometry(r, r, h, 64), mat, 0, 0, z); m.rotation.x = Math.PI / 2; return m; };
+    const torus = (r, tube, mat, z) => add(C, new THREE.TorusGeometry(r, tube, 12, 96), mat, 0, 0, z);
+    disc(0.28, 0.04, M.gun, 0.0);
+    disc(0.22, 0.04, M.black, 0.03);
+    torus(0.2, 0.02, M.red, 0.05);
+    torus(0.24, 0.008, M.redSoft, 0.03);
+    disc(0.16, 0.03, M.gunDark, 0.05);
+    for (let i = 0; i < 8; i++) { const a = i / 8 * Math.PI * 2; const sp = box(C, 0.1, 0.012, 0.012, M.gun, Math.cos(a) * 0.1, Math.sin(a) * 0.1, 0.07); sp.rotation.z = a; }
+    torus(0.105, 0.014, M.red, 0.075);
+    disc(0.06, 0.03, M.lens, 0.08);
+    for (let i = 0; i < 4; i++) { const a = i / 4 * Math.PI * 2 + Math.PI / 4; const t = box(C, 0.05, 0.016, 0.014, M.red, Math.cos(a) * 0.26, Math.sin(a) * 0.26, 0.05); t.rotation.z = a; }
+    for (let i = 0; i < 16; i++) { const a = i / 16 * Math.PI * 2; const t = box(C, 0.03, 0.02, 0.03, M.copper, Math.cos(a) * 0.3, Math.sin(a) * 0.3, 0.0); t.rotation.z = a; }
+    strip(F, 0, -0.32, 0, -0.9, Z0 + 0.03, 0.02);
+    strip(F, -0.04, 0.42, 0.04, 0.42, Z0 + 0.06, 0.02);
+    anchors.rear = new THREE.Object3D(); anchors.rear.position.set(0, 0, 0.08); C.add(anchors.rear);
+  }
+  return F;
+}
+buildFace(true);
+buildFace(false);
+const droneCoreLight = new THREE.PointLight(0xff2a35, 1.2, 1.2, 2); droneCoreLight.position.set(0, 0.12, Z0 + 0.25); drone.add(droneCoreLight);
+scene.add(drone);
+
+// ───────── 도크 스테이션 ─────────
+const dock = new THREE.Group(); scene.add(dock);
+add(dock, new THREE.CylinderGeometry(3.32, 3.4, 0.36, 128), M.gunDark, 0, 0, 0);
+
+function annularSector(rIn, rOut, a0, a1, h, bevel = 0.012) {
+  const s = new THREE.Shape();
+  s.absarc(0, 0, rOut, a0, a1, false);
+  s.lineTo(rIn * Math.cos(a1), rIn * Math.sin(a1));
+  s.absarc(0, 0, rIn, a1, a0, true);
+  s.closePath();
+  const g = extrudeGeo(s, h, bevel); g.rotateX(-Math.PI / 2); return g;
+}
+const polar = (r, a, y) => new THREE.Vector3(r * Math.cos(a), y, -r * Math.sin(a));
+function ticksOnArc(parent, r, a0, a1, y, n, geo, mat, every = 0, geo2, mat2) {
+  const im = new THREE.InstancedMesh(geo, mat, n), o = new THREE.Object3D();
+  let im2 = null; const n2 = every ? Math.floor(n / every) : 0; if (n2) im2 = new THREE.InstancedMesh(geo2, mat2, n2);
+  let j = 0;
+  for (let i = 0; i < n; i++) {
+    const a = a0 + (a1 - a0) * (i + 0.5) / n;
+    o.position.copy(polar(r, a, y)); o.rotation.set(0, a, 0); o.updateMatrix();
+    if (im2 && i % every === 0 && j < n2) im2.setMatrixAt(j++, o.matrix);
+    im.setMatrixAt(i, o.matrix);
+  }
+  parent.add(im); if (im2) parent.add(im2);
+}
+
+// 외곽 림 블록
+const RIM_N = 36;
+for (let i = 0; i < RIM_N; i++) {
+  const a0 = i / RIM_N * Math.PI * 2, a1 = (i + 1) / RIM_N * Math.PI * 2;
+  add(dock, annularSector(3.02, 3.3, a0 + 0.012, a1 - 0.012, 0.3, 0.02), i % 2 ? M.gun : M.gunDark, 0, 0.16, 0);
+  const am = (a0 + a1) / 2;
+  if (i % 3 === 0) { const s = add(dock, new THREE.BoxGeometry(0.02, 0.06, 0.24), M.red); s.position.copy(polar(3.31, am, 0.32)); s.rotation.y = am; }
+  if (i % 3 === 1) { const s = add(dock, new THREE.BoxGeometry(0.12, 0.05, 0.08), M.copper); s.position.copy(polar(3.15, am, 0.5)); s.rotation.y = am; }
+  if (i % 2 === 0) { const s = add(dock, new THREE.BoxGeometry(0.03, 0.14, 0.04), M.black); s.position.copy(polar(3.31, am + 0.05, 0.18)); s.rotation.y = am; }
+}
+{ const t = add(dock, new THREE.TorusGeometry(3.0, 0.012, 8, 256), M.red, 0, 0.48, 0); t.rotation.x = Math.PI / 2; }
+
+// 7단 계단식 링 (k=0 바깥 → k=6 안쪽). 안쪽 3단은 4조각 분리형.
+const tiers = [], splitSegs = [], pistons = [];
+const tickGeo = new THREE.BoxGeometry(0.06, 0.012, 0.012), tickGeo2 = new THREE.BoxGeometry(0.1, 0.03, 0.03);
+const TIER_W = 0.27;
+for (let k = 0; k < 7; k++) {
+  const rOut = 2.98 - k * TIER_W, rIn = rOut - TIER_W + 0.02, h = 0.3, yTop = 0.5 - k * 0.055;
+  const tier = new THREE.Group(); tier.userData.k = k; dock.add(tier); tiers.push(tier);
+  const split = k >= 4, nSeg = split ? 4 : 8, gap = split ? 0.03 : 0.006;
+  for (let s = 0; s < nSeg; s++) {
+    const off = split ? Math.PI / 4 : 0;
+    const a0 = off + s / nSeg * Math.PI * 2 + gap, a1 = off + (s + 1) / nSeg * Math.PI * 2 - gap, am = (a0 + a1) / 2;
+    const seg = new THREE.Group(); tier.add(seg);
+    add(seg, annularSector(rIn, rOut, a0, a1, h), (k + s) % 2 ? M.gun : M.gunDark, 0, yTop - h, 0);
+    const rm = (rIn + rOut) / 2, n = Math.round((a1 - a0) * rm / 0.09);
+    ticksOnArc(seg, rm + 0.06, a0, a1, yTop + 0.014, n, tickGeo, M.black, 5, tickGeo2, M.copper);
+    if (k % 2 === 0 || split) {
+      const arc = add(seg, new THREE.TorusGeometry(rIn + 0.012, 0.009, 6, 64, a1 - a0).rotateX(-Math.PI / 2), M.red, 0, yTop + 0.006, 0);
+      arc.rotation.y = a0;
+    }
+    // 회로판 / 센서 블록
+    for (let q = 0; q < (split ? 2 : 1); q++) {
+      const aa = a0 + (a1 - a0) * (q + 1) / ((split ? 2 : 1) + 1);
+      const pcb = add(seg, new THREE.BoxGeometry(0.1, 0.02, 0.14), M.black); pcb.position.copy(polar(rm - 0.03, aa, yTop + 0.01)); pcb.rotation.y = aa;
+      const led = add(seg, new THREE.BoxGeometry(0.02, 0.022, 0.02), q ? M.orange : M.red); led.position.copy(polar(rm - 0.03, aa + 0.02, yTop + 0.025));
+    }
+    if (split) {
+      seg.userData = { dir: polar(1, am, 0), j: 6 - k };
+      splitSegs.push(seg);
+      if (k === 6) {
+        // 도크 암: 하우징 + 구리 피스톤(드론 클램프)
+        for (const da of [-0.32, 0.32]) {
+          const aa = am + da;
+          const hous = add(seg, new THREE.BoxGeometry(0.26, 0.1, 0.12), M.black); hous.position.copy(polar(rIn + 0.08, aa, yTop + 0.03)); hous.rotation.y = aa;
+          const rod = new THREE.Mesh(new THREE.CylinderGeometry(0.024, 0.024, 0.34, 14).rotateZ(Math.PI / 2), M.copper);
+          rod.rotation.y = aa; rod.userData = { aa, r0: rIn - 0.02, r1: rIn - 0.2, y: yTop + 0.03 };
+          seg.add(rod); pistons.push(rod);
+          const cap = add(seg, new THREE.BoxGeometry(0.06, 0.05, 0.05), M.red); cap.position.copy(polar(rIn + 0.2, aa, yTop + 0.07));
+        }
+      }
+    }
+  }
+}
+anchors.arm = pistons[0];
+
+// 중앙 포켓: 바닥 + 드론 크래들 + 발광 외곽선
+const POCKET_R = 2.98 - 7 * TIER_W + 0.02;
+add(dock, new THREE.CylinderGeometry(POCKET_R + 0.1, POCKET_R + 0.1, 0.06, 96), M.gunDark, 0, 0.17, 0);
+{
+  const cradle = add(dock, extrudeGeo(shapeFrom(outline.map(([x, y]) => [x * 1.12, y * 1.06])), 0.05, 0.01).rotateX(-Math.PI / 2), M.black, 0, 0.2, 0);
+  const pts = outline.map(([x, y]) => new THREE.Vector3(x * 1.2, 0.27, -y * 1.1));
+  add(dock, new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts, true, 'catmullrom', 0.1), 240, 0.01, 6, true), M.red);
+  for (let i = 0; i < 12; i++) {
+    const a = i / 12 * Math.PI * 2;
+    const l = add(dock, new THREE.BoxGeometry(0.4, 0.01, 0.02), i % 3 ? M.copper : M.redSoft); l.position.copy(polar(POCKET_R - 0.15, a, 0.205)); l.rotation.y = a;
+  }
+  // 내부 정비 라인: 배관/케이블 링
+  for (const [r, mat] of [[0.75, M.copper], [0.9, M.black], [1.02, M.copper]]) {
+    const t = add(dock, new THREE.TorusGeometry(r, 0.025, 10, 96), mat, 0, 0.12, 0); t.rotation.x = Math.PI / 2;
+  }
+}
+anchors.interior = new THREE.Object3D(); anchors.interior.position.set(0, 0.2, 0); dock.add(anchors.interior);
+
+// ───────── 애니메이션 상태 ─────────
+const P = { open: 0, lift: 0, clamp: 1, deploy: 0 };
+const DOCK_Y = 0.2 + 0.05 + HZ + 0.07, HOVER_Y = 2.9;
+let tracks = [], seqT0 = 0, busy = false, docked = true, combatT0 = -99, spin = false, ringOpenManual = false;
+const ease = (x) => x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
+const clamp01 = (x) => Math.min(1, Math.max(0, x));
+const sstep = (a, b, x) => { const t = clamp01((x - a) / (b - a)); return t * t * (3 - 2 * t); };
+
+function runSeq(list, onDone) {
+  tracks = list.map(([key, t0, t1, to]) => ({ key, t0, t1, to, from: null }));
+  seqT0 = clock.elapsedTime; busy = true;
+  tracks.end = Math.max(...list.map((l) => l[2]));
+  tracks.onDone = onDone;
+}
+function updateTracks(t) {
+  if (!tracks.length) return;
+  const lt = t - seqT0;
+  for (const tr of tracks) {
+    if (lt < tr.t0) continue;
+    if (tr.from === null) tr.from = P[tr.key];
+    P[tr.key] = tr.from + (tr.to - tr.from) * ease(clamp01((lt - tr.t0) / (tr.t1 - tr.t0)));
+  }
+  if (lt > tracks.end) { const cb = tracks.onDone; tracks = []; busy = false; cb && cb(); }
+}
+
+function applyPose(t) {
+  // 드론 위치/자세
+  const L = ease(clamp01(P.lift)), rotT = sstep(0.3, 1, P.lift);
+  drone.position.set(0, DOCK_Y + (HOVER_Y - DOCK_Y) * L + (P.lift > 0.99 ? Math.sin(t * 1.6) * 0.05 : 0), 0);
+  drone.rotation.x = -Math.PI / 2 * (1 - rotT);
+  if (spin && P.lift > 0.99) drone.rotation.y += 0.006; else if (P.lift < 0.99) drone.rotation.y *= 0.92;
+  // 안쪽 3단 분리 링: 바깥으로 → 아래로 (안쪽부터 순차)
+  for (const seg of splitSegs) {
+    const o = clamp01(P.open * 1.5 - seg.userData.j * 0.25);
+    const out = sstep(0, 0.5, o) * (0.16 + seg.userData.j * 0.04), down = sstep(0.5, 1, o) * 0.42;
+    seg.position.copy(seg.userData.dir).multiplyScalar(out); seg.position.y = -down;
+  }
+  // 클램프 피스톤
+  for (const rod of pistons) { const u = rod.userData, r = u.r0 + (u.r1 - u.r0) * P.clamp; rod.position.copy(polar(r, u.aa, u.y)); }
+  // 전투 전개: 바깥→안쪽 순으로 들리며 교차 비틀림 후 재결합
+  const ct = t - combatT0;
+  for (const tier of tiers) {
+    const k = tier.userData.k, u = clamp01((ct - k * 0.12) / 1.7), bell = Math.sin(Math.PI * u);
+    tier.position.y = bell * (0.38 - k * 0.03);
+    tier.rotation.y = bell * (k % 2 ? -1 : 1) * 0.45;
+  }
+  // 드론 장갑 전개
+  const D = ease(P.deploy);
+  for (const g of deployables) {
+    const u = g.userData;
+    g.rotation.y = u.rotY + u.open * D;
+    g.position.z = u.z + D * (0.05 + (u.lift || 0));
+  }
+}
+
+// ───────── 카메라 ─────────
+let camTween = null;
+function flyTo(pos, target, dur = 1.3) { camTween = { p0: camera.position.clone(), t0: controls.target.clone(), p1: pos, t1: target, s: clock.elapsedTime, dur }; }
+function updateCam(t) {
+  if (!camTween) return;
+  const u = ease(clamp01((t - camTween.s) / camTween.dur));
+  camera.position.lerpVectors(camTween.p0, camTween.p1, u);
+  controls.target.lerpVectors(camTween.t0, camTween.t1, u);
+  if (u >= 1) camTween = null;
+}
+const wp = (o) => { drone.updateMatrixWorld(true); dock.updateMatrixWorld(true); return o.getWorldPosition(new THREE.Vector3()); };
+const droneLocal = (x, y, z) => { drone.updateMatrixWorld(true); return drone.localToWorld(new THREE.Vector3(x, y, z)); };
+
+const VIEWS = {
+  front: () => flyTo(droneLocal(0, 0.15, 5.2), droneLocal(0, 0, 0)),
+  side:  () => flyTo(droneLocal(5.2, 0.15, 0.4), droneLocal(0, 0, 0)),
+  rear:  () => flyTo(droneLocal(0, 0.15, -5.2), droneLocal(0, 0, 0)),
+  dock:  () => flyTo(new THREE.Vector3(0, 6.8, 8.2), new THREE.Vector3(0, 0.4, 0)),
+};
+const DETAILS = {
+  armor:    { t: 'DRONE ARMOR DETAIL', k: '드론 외장 디테일', d: '세라믹 화이트 장갑 패널과 블랙 메카 프레임의 다층 구조. 각 패널은 독립 구동(전개) 모듈이며 측면에 센서 라인과 구리 피스톤을 내장합니다.',
+              go: () => flyTo(wp(anchors.armor).add(droneLocal(0.9, 0.2, 1.1).sub(droneLocal(0, 0, 0))), wp(anchors.armor)) },
+  core:     { t: 'CORE INTERFACE', k: '코어 인터페이스', d: '도크와 드론을 연결하는 코어(눈). 데이터·전력·제어 신호가 통합되는 핵심 구간으로 다이아몬드 발광부 주위에 구리 접점이 배열됩니다. 분석 HUD 레이저 출력부.',
+              go: () => flyTo(wp(anchors.core).add(droneLocal(0.25, -0.2, 1.4).sub(droneLocal(0, 0, 0))), wp(anchors.core)) },
+  arm:      { t: 'DOCK ARM STRUCTURE', k: '도크 암 구조', d: '4방향 지지 암(분리 링 1조각당 2기). 구리 유압 피스톤이 드론 측면을 클램프하며 전력/데이터 케이블과 정비 모듈이 하우징에 내장됩니다.',
+              go: () => { const p = wp(anchors.arm); flyTo(p.clone().add(new THREE.Vector3(0.9, 0.9, 0.9)), p); } },
+  interior: { t: 'DOCK INTERIOR', k: '도크 내부 구조', d: '크래들 하부의 전기 접점·냉각 라인·데이터 허브. 분리 링이 열리면 내부 배관 링과 크래들 발광 외곽선이 드러납니다. 분리/결합 시 자동으로 정렬됩니다.',
+              go: () => { flyTo(new THREE.Vector3(2.2, 3.0, 2.2), new THREE.Vector3(0, 0.1, 0)); if (docked && !busy && P.open < 0.5) toggleOpen(); } },
+  rear:     { t: 'DRONE REAR DETAIL', k: '드론 후면 디테일', d: '추진부와 자세 제어 모듈, 열 배출구가 통합된 후면 구조. 동심 레드 링이 추진 코어이며 비행 시 맥동합니다.',
+              go: () => flyTo(wp(anchors.rear).add(droneLocal(0.3, -0.2, -1.5).sub(droneLocal(0, 0, 0))), wp(anchors.rear)) },
+};
+
+// ───────── UI ─────────
+const $ = (s) => document.querySelector(s), $$ = (s) => document.querySelectorAll(s);
+const info = $('#info'), stTxt = $('#stTxt');
+const setInfo = (t, k, d) => { info.innerHTML = `<h3>${t} <small>(${k})</small></h3><p>${d}</p>`; };
+const VIEW_INFO = {
+  front: ['FRONT', '정면', '다이아몬드 코어(눈)가 중심 광원. 좌우 3단 화이트 장갑이 블랙 프레임을 감쌉니다.'],
+  side:  ['SIDE', '옆면', '측면 클래딩과 구리 피스톤, 앞뒤로 기울어진 장갑판이 갈고리형 실루엣을 만듭니다.'],
+  rear:  ['REAR', '후면', '동심 레드 링 추진 코어와 하단 세로 발광선.'],
+  dock:  ['DOCK STATION', '도크', '계단식 7단 링. 안쪽 3단이 4조각으로 갈라져 바깥으로 밀린 뒤 아래로 내려가며 출입로를 엽니다.'],
+};
+function selectBtn(el) { $$('[data-view],[data-detail]').forEach((b) => b.classList.remove('on')); el.classList.add('on'); }
+$$('[data-view]').forEach((b) => b.onclick = () => { selectBtn(b); VIEWS[b.dataset.view](); setInfo(...VIEW_INFO[b.dataset.view]); });
+$$('[data-detail]').forEach((b) => b.onclick = () => { selectBtn(b); const d = DETAILS[b.dataset.detail]; d.go(); setInfo(d.t, d.k, d.d); });
+
+const bLaunch = $('#bLaunch'), bOpen = $('#bOpen');
+bLaunch.onclick = () => {
+  if (busy) return;
+  if (docked) {
+    stTxt.textContent = 'LAUNCHING';
+    runSeq([['clamp', 0, 0.6, 0], ['open', 0.4, 1.7, 1], ['lift', 1.5, 3.4, 1], ['open', 3.2, 4.4, 0]],
+      () => { docked = false; ringOpenManual = false; bOpen.classList.remove('on'); stTxt.textContent = 'HOVER'; bLaunch.textContent = '도킹'; });
+  } else {
+    stTxt.textContent = 'DOCKING';
+    runSeq([['deploy', 0, 0.6, 0], ['open', 0, 1.3, 1], ['lift', 1.0, 3.1, 0], ['open', 2.9, 4.1, 0], ['clamp', 3.9, 4.5, 1]],
+      () => { docked = true; stTxt.textContent = 'DOCKED'; bLaunch.textContent = '이륙'; $('#bDeploy').classList.remove('on'); });
+  }
+};
+function toggleOpen() {
+  if (busy) return;
+  ringOpenManual = !ringOpenManual; bOpen.classList.toggle('on', ringOpenManual);
+  runSeq([['open', 0, 1.3, ringOpenManual ? 1 : 0]]);
+}
+bOpen.onclick = toggleOpen;
+$('#bCombat').onclick = () => { combatT0 = clock.elapsedTime; };
+$('#bDeploy').onclick = (e) => { if (busy) return; const on = P.deploy < 0.5; e.target.classList.toggle('on', on); runSeq([['deploy', 0, 0.8, on ? 1 : 0]]); };
+$('#bSpin').onclick = (e) => { spin = !spin; e.target.classList.toggle('on', spin); };
+let studio = false;
+$('#bBg').onclick = (e) => {
+  studio = !studio; e.target.classList.toggle('on', studio);
+  scene.background.copy(studio ? BG_STUDIO : BG_DARK);
+  bloom.strength = studio ? 0.35 : 0.6;
+};
+
+// ───────── 루프 ─────────
+const clock = new THREE.Clock();
+const BPM = 72; const bpmEl = $('#bpm');
+function frame() {
+  const t = clock.getElapsedTime();
+  updateTracks(t);
+  applyPose(t);
+  updateCam(t);
+  // 심박 맥동(코어/발광부)
+  const ph = (t * BPM / 60) % 1, beat = Math.exp(-ph * 9) + 0.5 * Math.exp(-Math.max(0, ph - 0.18) * 12) * (ph > 0.18 ? 1 : 0);
+  M.red.emissiveIntensity = 2.4 + beat * 1.8;
+  droneCoreLight.intensity = 0.25 + beat * 0.4;
+  dockGlow.intensity = (docked ? 1.6 : 0.8) + beat * 0.8;
+  controls.update();
+  composer.render();
+  requestAnimationFrame(frame);
+}
+bpmEl.textContent = String(BPM).padStart(3, '0');
+applyPose(0);
+frame();
+
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight); composer.setSize(innerWidth, innerHeight);
+});
+window.__desync = { P, VIEWS, DETAILS, camera, controls, bLaunch };
+</script>
+</body>
+</html>
