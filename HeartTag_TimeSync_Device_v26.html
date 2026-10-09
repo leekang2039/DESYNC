@@ -2009,6 +2009,8 @@ const DRONE26 = await (async () => {
   // docked height: hull bottom resting on the cradle (cradle top ≈ −0.07 in DK)
   const halfT = -mb.min.z*S_LEN*FZ*DS;                    // world half-thickness (back side faces down when docked)
   V22.OFF.position.x = (-0.07 + halfT - DOCKY)/DS;
+  // docked pose: the Meshy hull lies nose-north like the reference (flip 180° about the vertical; hover pose unchanged)
+  dockQ.premultiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI)); if (!out) setDrone(DOCKP, dockQ, DS);
   // pulse the emitter with the heart rate
   (function p26(){ const per = 60/bpm(hp), ph = ((performance.now()/1000) % per)/per; const k = ph < 0.07 ? ph/0.07 : Math.max(0, 1 - (ph - 0.07)/0.33);
     emM.emissiveIntensity = 2.0 + 2.0*k; cl.intensity = 1.0 + 1.2*k; requestAnimationFrame(p26); })();
