@@ -199,92 +199,102 @@ function windowMarks(a, half, r0, r1, al=1){ [a + half, a - half].forEach(b => {
 const fall = (a, w, span) => clamp(1 - Math.max(0, Math.abs(a - w) - 4)/span);     // fade away from a window
 const DIGITS = '0123456789'.split('');
 
-// ---- aim HUD: an ammo cylinder track turning through a window, odometer count, revolver round-type ----
-const AW = 2;                                        // reading window (degrees, 0 = right, 90 = up)
-const R_TRK = 192, R_RULE = 208, R_UP = 226, STEP_R = 5.5;
-const ammoTrack = new Spring(300, 22);
-const dTens = new Drum(DIGITS, 230, AW, 26, 58, {align: 'center'}), dOnes = new Drum(DIGITS, 264, AW, 26, 58, {align: 'center'});
-const dMags = new Drum(DIGITS, 304, AW + 11, 30, 20, {align: 'center'});
-const dType = new Drum(TYPES, 228, AW - 21, 22, 24, {forward: true, dots: true, space: 3});
+// ---- decoder text: scrambles through hex glyphs, then each changed character resolves left to right ----
+const GLYPH = '0123456789ABCDEF#%/<>';
+class Decoder { constructor(s=''){ this.cur = s; this.prev = s; this.t0 = -1; }
+  set(s){ if (s === this.cur) return; this.prev = this.cur; this.cur = s; this.t0 = T; }
+  scramble(){ this.prev = ''; this.t0 = T; }
+  get(rate=0.035, delay=0.07){ if (this.t0 < 0) return this.cur; const e = T - this.t0; let out = '', done = true;
+    for (let i=0;i<this.cur.length;i++){ const ch = this.cur[i];
+      if (ch === ' ' || this.prev[i] === ch || e > delay + i*rate) out += ch; else { out += GLYPH[(Math.random()*GLYPH.length)|0]; done = false; } }
+    if (done) this.t0 = -1; return out; } }
+
+// ---- aim HUD: a cipher strip of rounds that decodes into place, a decoder count, the revolver round-type ----
+const A0 = 66, A1 = 6, R_TRK = 190, R_RULE = 204, R_UP = 222;
+const dType = new Drum(TYPES, 226, A1 - 24, 22, 24, {forward: true, dots: true, space: 3});
 const PEEK = {drone: 0, mark: 0};
-function spinIn(){ ammoTrack.snap(Math.max(0, S.ammo - 9)); ammoTrack.target = S.ammo; dTens.reset(0); dOnes.reset(0); }
+const AIMD = {t0: 0, reload0: -1, burn: new Array(30).fill(-9)};      // reveal clock, reload decode clock, per-round burn-out time
+const countDec = new Decoder('24'), magDec = new Decoder('×3');
+function aimIn(){ AIMD.t0 = T; countDec.scramble(); magDec.scramble(); }
+function lockTime(i){ return 0.18 + i*0.011; }                         // block i freezes from cipher noise into its real state
 function drawAim(T){
-  const kA = ease(clamp(hudK/0.6)), kT = ease(clamp((hudK - 0.25)/0.5));
-  const low = S.ammo <= 10 && S.reload <= 0, blink = low && Math.floor(T*4) % 2 === 0;
-  ammoTrack.target = S.ammo; dTens.set(Math.floor(S.ammo/10)); dOnes.set(S.ammo % 10); dMags.set(S.mags); dType.set(S.type);
-  // cylinder track: one tick per round, remaining rounds stacked above the window, spent ones roll out below
-  hair(R_RULE, AW + 78, AW - 16, kA, 6);
-  const p = ammoTrack.pos, top = lerp(AW - 18, AW + 80, kA), rl = S.reload > 0;
-  for (let i=0;i<S.max;i++){ const a = AW + (p - 1 - i)*STEP_R; if (a > top || a < AW - 18) continue;
-    const live = i < S.ammo, head = i === S.ammo - 1 && !rl;
-    g.globalAlpha = fall(a, AW, 74)*(rl ? 0.45 + 0.3*Math.sin(T*16) : 1);
-    tick(R_TRK, a, head ? 24 : live ? 14 : 8, head ? 3.5 : 2.5, head ? W(1) : live ? (blink ? H(0.4) : E(0.9)) : H(0.2)); }
-  g.globalAlpha = 1;
-  windowMarks(AW, 4.6, R_TRK - 20, R_TRK + 18, kA); caret(R_RULE + 10, AW, 5, W(kA));
-  // count (two odometer drums) · spare mags · round type (revolver)
-  if (kT > 0){ const al = kT*(blink ? 0.5 : 1); dTens.draw(al); dOnes.draw(al);
-    g.globalAlpha = kT; { const [x, y] = P(288, AW + 11); text('×', x, y, 18, E(0.85), 'center'); } dMags.draw(kT, E(1));
-    dType.draw(kT); }
+  const kT = ease(clamp((hudK - 0.25)/0.5)), e = T - AIMD.t0, rl = S.reload > 0;
+  const low = S.ammo <= 10 && !rl, blink = low && Math.floor(T*4) % 2 === 0, sh = Math.floor(T*24);
+  if (rl && AIMD.reload0 < 0) AIMD.reload0 = T; if (!rl && AIMD.reload0 >= 0){ AIMD.reload0 = -1; AIMD.t0 = T - 0.05; countDec.scramble(); }
+  // the strip: one block per round; cipher noise until each block locks (on reveal and after a reload), burnt rounds flash out
+  segBand(R_TRK, A0, A1, S.max, 8, i => {
+    const a = lerp(A0, A1, (i + 0.5)/S.max), shown = e > i*0.006; if (!shown) return null;
+    if (rl || e < lockTime(i)) return ((i*7 + sh*3) % 5) < 2 ? E(0.7) : H(0.12);
+    const live = i < S.ammo, head = live && i === S.ammo - 1, burn = T - AIMD.burn[i];
+    if (burn < 0.25) return W(1 - burn*3);
+    return head ? W(1) : live ? (blink ? H(0.4) : E(0.92)) : H(0.1); }, 0.3);
+  if (kT > 0){ hair(R_RULE, A0, lerp(A0, A1, kT), kT, 5);
+    // decode cursor: two short marks bracketing the next round
+    if (S.ammo > 0 && !rl){ const aH = lerp(A0, A1, (S.ammo - 0.5)/S.max), half = (A0 - A1)/S.max*0.75;
+      windowMarks(aH, half, R_TRK - 9, R_TRK + 9, kT); caret(R_RULE + 9, aH, 4.5, W(kT)); } }
+  // count · mags (decoder text) · round type (revolver)
+  if (kT > 0){ countDec.set(rl ? '--' : String(S.ammo).padStart(2, '0')); magDec.set('×' + S.mags);
+    g.globalAlpha = kT; const [x, y] = P(R_TRK + 16, A1 - 9);
+    text(countDec.get(0.05, 0.06), x, y + 8, 60, blink ? H(0.5) : W(1), 'left', true);
+    spaced(2); text(magDec.get(), x + 84, y - 12, 20, E(0.85)); spaced(0);
+    g.globalAlpha = 1; dType.set(S.type); dType.draw(kT); }
   // drone: a cipher strip above that scrolls, then freezes into battery blocks + rounds (only after a drone shot / low battery)
   const dA = Math.max(clamp(PEEK.drone/0.4), S.batt <= 20 ? 1 : 0)*kT;
-  if (dA > 0){ g.globalAlpha = dA; const tt = 2.5 - PEEK.drone, frozen = tt > 0.45 || S.batt <= 20, lit = Math.round(S.batt/10), sh = Math.floor(T*22);
+  if (dA > 0){ g.globalAlpha = dA; const tt = 2.5 - PEEK.drone, frozen = tt > 0.45 || S.batt <= 20, lit = Math.round(S.batt/10);
     segBand(R_UP, 84, 48, 10, 4, i => frozen ? (i < lit ? (S.batt <= 20 ? W(1) : E(0.95)) : H(0.15)) : ((i*7 + sh) % 5 < 2 ? E(0.7) : H(0.12)), 0.3);
     for (let i=0;i<S.dMax;i++) diamond(R_UP, 42 - i*7, 4.5, i < S.dAmmo, E(1)); g.globalAlpha = 1; }
-  // gear: chambers above the window while cooling (ring fills), blink once when ready
-  GEAR.forEach((G, i) => { if (G.left <= 0 && G.ready <= 0) return; const a = 30 - i*7, [x, y] = P(R_UP, a); g.globalAlpha = kT;
+  // gear: small rings above the strip while cooling (ring fills), blink once when ready
+  GEAR.forEach((G, i) => { if (G.left <= 0 && G.ready <= 0) return; const a = A0 + 8 + i*7, [x, y] = P(R_TRK, a); g.globalAlpha = kT;
     if (G.left > 0){ g.strokeStyle = H(0.3); g.lineWidth = 2; g.beginPath(); g.arc(x, y, 6, 0, Math.PI*2); g.stroke();
       g.strokeStyle = E(1); g.beginPath(); g.arc(x, y, 6, -Math.PI/2, -Math.PI/2 + (1 - G.left/G.cd)*Math.PI*2); g.stroke(); }
-    else dot(R_UP, a, 5, true, W(Math.floor(G.ready*8) % 2 ? 1 : 0.3));
+    else dot(R_TRK, a, 5, true, W(Math.floor(G.ready*8) % 2 ? 1 : 0.3));
     g.globalAlpha = 1; });
-  // marks: three blocks at the top of the track for a moment after marking
+  // marks: three blocks at the top for a moment after marking
   const mA = clamp(PEEK.mark/0.4)*kT;
   if (mA > 0){ g.globalAlpha = mA; segBand(R_UP, 100, 88, 3, 5, i => i < S.mark ? E(1) : H(0.2), 0.3); g.globalAlpha = 1; } }
 
-// ---- bracelet actions: tracks turning through a window at the middle of the outer half-ring ----
+// ---- bracelet actions: tracks freezing into a window at the middle of the outer half-ring, decoder status text ----
 const HEX = '0123456789ABCDEF';
-const B0 = 110, B1 = -50, BM = (B0 + B1)/2;          // action half-ring and its window
+const B0 = 98, B1 = -30, BM = (B0 + B1)/2;           // action half-ring (narrower) and its window
 const along = k => lerp(B0, B1, k);
-const R_STAT = 280;
-const doorState = new Drum(['LOCKED', 'UNLOCK', 'OPEN'], R_STAT, BM, 18, 34, {forward: true, dots: true});
-const hackState = new Drum(['SYNC 0/3', 'SYNC 1/3', 'SYNC 2/3', 'ACCESS'], R_STAT, BM, 18, 32, {forward: true, dots: true});
-const scanState = new Drum(['SCANNING', 'OBJECT 03'], R_STAT, BM, 18, 32, {forward: true, dots: true});
-function statLabel(s, al=1){ const [x, y] = P(R_STAT, BM + 9); g.save(); g.translate(x, y); g.globalAlpha *= al; spaced(4); text(s, 0, 0, 15, E(0.75)); spaced(0); g.restore(); }
-function statSub(s){ const [x, y] = P(R_STAT, BM - 8); text(s, x, y, 17, H(0.85)); }
+const R_STAT = 262;
+const statDec = new Decoder('');
+function statLabel(s){ const [x, y] = P(R_STAT, BM + 10); spaced(4); text(s, x, y, 15, E(0.75)); spaced(0); }
+function statBig(s){ statDec.set(s); const [x, y] = P(R_STAT, BM); text(statDec.get(), x, y, 32, W(1), 'left', true); }
+function statSub(s){ const [x, y] = P(R_STAT, BM - 9); text(s, x, y, 16, H(0.85)); }
 // a cipher track: blocks scroll until `locked`, then only the window stays lit
-function cipher(r, t, speed, seed, locked, w=5){ const n = 40, sh = Math.floor(t*speed);
-  segBand(r, B0, B1, n, w, j => { const a = along((j + 0.5)/n), f = fall(a, BM, 80), inWin = Math.abs(a - BM) < 6.5;
+function cipher(r, t, speed, seed, locked, w=5){ const n = 32, sh = Math.floor(t*speed);
+  segBand(r, B0, B1, n, w, j => { const a = along((j + 0.5)/n), f = fall(a, BM, 64), inWin = Math.abs(a - BM) < 6;
     if (locked) return inWin ? W(1) : H(0.1*f);
     return ((j*7 + sh*3 + seed*11) % 5) < 2 ? E(0.15 + 0.6*f) : H(0.06 + 0.06*f); }, 0.3); }
-function drawDoor(t){ const PIN = [0.35, 0.55, 0.75, 0.95], R = [184, 198, 212, 226], fade = 1 - clamp((t - 2.2)/0.4);
+function drawDoor(t){ const PIN = [0.35, 0.55, 0.75, 0.95], R = [178, 190, 202, 214], fade = 1 - clamp((t - 2.2)/0.4);
   g.globalAlpha = fade;
-  // pin tumblers: four tracks spin and set into the window one by one
+  // pin tumblers: four tracks scramble and set into the window one by one
   R.forEach((r, i) => { const set = t > PIN[i]; cipher(r, t, 16 + i*6, i, set, 4);
-    const fl = set ? clamp(1 - (t - PIN[i])*4) : 0; if (fl > 0) arc(r, BM + 6.5, BM - 6.5, 12, W(0.45*fl)); });
-  windowMarks(BM, 7.5, 174, 236); hair(244, B0, B1, 1, 10);
-  doorState.set(t < 0.95 ? 0 : t < 1.3 ? 1 : 2); g.globalAlpha = fade; statLabel('DOOR B-12'); doorState.draw(fade);
-  g.globalAlpha = fade; statSub(PIN.filter(p => t > p).length + '/4 PINS'); g.globalAlpha = 1; }
-function drawHack(t){ const LOCK = [0.9, 1.6, 2.3], R = [186, 202, 218], fade = 1 - clamp((t - 3.0)/0.4);
+    const fl = set ? clamp(1 - (t - PIN[i])*4) : 0; if (fl > 0) arc(r, BM + 6, BM - 6, 10, W(0.45*fl)); });
+  windowMarks(BM, 7, 170, 222); hair(230, B0, B1, 1, 8);
+  statLabel('DOOR B-12'); statBig(t < 0.95 ? 'LOCKED' : t < 1.3 ? 'UNLOCK' : 'OPEN'); statSub(PIN.filter(p => t > p).length + '/4 PINS'); g.globalAlpha = 1; }
+function drawHack(t){ const LOCK = [0.9, 1.6, 2.3], R = [180, 194, 208], fade = 1 - clamp((t - 3.0)/0.4);
   g.globalAlpha = fade;
   R.forEach((r, i) => { const locked = t > LOCK[i]; cipher(r, t, 14 + i*6, i, locked);
-    const fl = locked ? clamp(1 - (t - LOCK[i])*4) : 0; if (fl > 0) arc(r, BM + 6.5, BM - 6.5, 14, W(0.4*fl)); });
-  windowMarks(BM, 7.5, 176, 228); hair(236, B0, B1, 1, 10);
-  for (let j=0;j<12;j++){ const a = B0 - 6 - j*13 - (t*26 % 13); const [x, y] = P(250, a); g.globalAlpha = fade*fall(a, BM, 90); text(HEX[(Math.random()*16)|0], x, y, 13, H(0.6), 'center'); }
-  const n = LOCK.filter(l => t > l).length; hackState.set(t > 2.45 ? 3 : n);
-  g.globalAlpha = fade; statLabel('NODE 04'); hackState.draw(fade); g.globalAlpha = fade; statSub(Math.floor(clamp(t/2.4)*100) + '%'); g.globalAlpha = 1; }
+    const fl = locked ? clamp(1 - (t - LOCK[i])*4) : 0; if (fl > 0) arc(r, BM + 6, BM - 6, 12, W(0.4*fl)); });
+  windowMarks(BM, 7, 172, 216); hair(222, B0, B1, 1, 8);
+  for (let j=0;j<10;j++){ const a = B0 - 5 - j*12.5 - (t*24 % 12.5); const [x, y] = P(236, a); g.globalAlpha = fade*fall(a, BM, 70); text(HEX[(Math.random()*16)|0], x, y, 12, H(0.6), 'center'); }
+  g.globalAlpha = fade; const n = LOCK.filter(l => t > l).length;
+  statLabel('NODE 04'); statBig(t > 2.45 ? 'ACCESS' : 'SYNC ' + n + '/3'); statSub(Math.floor(clamp(t/2.4)*100) + '%'); g.globalAlpha = 1; }
 function drawScan(t){ const p = clamp(t/2.0), k = ease(clamp((t - 2.0)/0.4)), fade = 1 - clamp((t - 3.2)/0.4);
   g.globalAlpha = fade;
-  // ruler wheel: spins fast while scanning, settles with a click when the object is identified
+  // ruler wheel: runs fast while scanning, eases to rest when the object is identified
   const rot = t < 2 ? t*70 : 140 + (1 - Math.exp(-(t - 2)*7))*12;
-  for (let m=-40;m<=40;m++){ const a = BM + m*4 + (rot % 4); if (a > B0 || a < B1) continue; g.globalAlpha = fade*fall(a, BM, 80);
-    tick(204, a, m % 5 ? 7 : 16, m % 5 ? 1.5 : 2.5, E(0.85)); }
+  for (let m=-34;m<=34;m++){ const a = BM + m*4 + (rot % 4); if (a > B0 || a < B1) continue; g.globalAlpha = fade*fall(a, BM, 64);
+    tick(196, a, m % 5 ? 6 : 14, m % 5 ? 1.5 : 2.5, E(0.85)); }
   g.globalAlpha = fade;
-  // progress fills out of the window both ways
-  const spread = p*(B0 - BM); segBand(188, B0, B1, 36, 7, j => { const a = along((j + 0.5)/36); return Math.abs(a - BM) <= spread ? E(0.25 + 0.65*fall(a, BM, 90)) : H(0.08); }, 0.3);
-  windowMarks(BM, 6, 178, 222); hair(230, B0, B1, 1);
-  scanState.set(p < 1 ? 0 : 1); statLabel(p < 1 ? 'PHASE SCAN' : 'IDENTIFIED'); scanState.draw(fade);
-  g.globalAlpha = fade; statSub(p < 1 ? Math.floor(p*100) + '%' : '위상 결정 파편 · RECIPE +1');
-  if (k > 0){ const [x, y] = P(R_STAT, BM - 8); g.globalAlpha = fade*k;
-    [['Fe-Ni', .62], ['PHASE', .28], ['POLY', .10]].forEach(([n, v], i) => { const yy = y + 34 + i*22; text(n, x, yy, 14, H(0.8));
+  const spread = p*(B0 - BM); segBand(182, B0, B1, 30, 6, j => { const a = along((j + 0.5)/30); return Math.abs(a - BM) <= spread ? E(0.25 + 0.65*fall(a, BM, 70)) : H(0.08); }, 0.3);
+  windowMarks(BM, 6, 172, 212); hair(218, B0, B1, 1);
+  statLabel(p < 1 ? 'PHASE SCAN' : 'IDENTIFIED'); statBig(p < 1 ? 'SCANNING' : 'OBJECT 03');
+  statSub(p < 1 ? Math.floor(p*100) + '%' : '위상 결정 파편 · RECIPE +1');
+  if (k > 0){ const [x, y] = P(R_STAT, BM - 9); g.globalAlpha = fade*k;
+    [['Fe-Ni', .62], ['PHASE', .28], ['POLY', .10]].forEach(([n, v], i) => { const yy = y + 32 + i*21; text(n, x, yy, 14, H(0.8));
       for (let b=0;b<10;b++){ g.fillStyle = b < Math.round(v*10*k) ? E(1) : H(0.18); g.fillRect(x + 66 + b*12, yy - 3, 9, 5); } }); }
   g.globalAlpha = 1; }
 
@@ -303,14 +313,14 @@ function drawMark(n){ const m = markC.getContext('2d'); m.clearRect(0, 0, 256, 2
   m.font = `400 26px ${MONO}`; m.fillStyle = W(1); m.textAlign = 'center'; m.fillText('MK ' + n, 128, 250); markT.needsUpdate = true; }
 
 // ---------------- input ----------------
-function setAim(on){ if (on && ACT.kind) return; if (on && !S.aim && hudK < 0.05) spinIn(); S.aim = on; document.querySelectorAll('[data-a="aim"]').forEach(b => b.setAttribute('aria-pressed', String(on))); $('xh').classList.toggle('ads', on); }
-function fire(){ if (!S.aim || S.reload > 0 || S.ammo <= 0) return; S.ammo--; S.recoil = 1; S.flash = 1; S.glitch = 0.08; tr.t = 0.07; }
+function setAim(on){ if (on && ACT.kind) return; if (on && !S.aim && hudK < 0.05) aimIn(); S.aim = on; document.querySelectorAll('[data-a="aim"]').forEach(b => b.setAttribute('aria-pressed', String(on))); $('xh').classList.toggle('ads', on); }
+function fire(){ if (!S.aim || S.reload > 0 || S.ammo <= 0) return; S.ammo--; AIMD.burn[S.ammo] = T; S.recoil = 1; S.flash = 1; S.glitch = 0.08; tr.t = 0.07; }
 function reload(){ if (S.reload > 0 || S.mags <= 0 || S.ammo === S.max) return; S.reload = 1.4; S.mags--; }
 const cycleType = () => { S.type = (S.type + 1) % 3; };   // dType turns to it
 const mark = () => { S.mark = S.mark >= 3 ? 0 : S.mark + 1; PEEK.mark = 2; drawMark(S.mark); };
 const droneFire = () => { PEEK.drone = 2.5; if (S.dAmmo > 0){ S.dAmmo--; S.batt = Math.max(0, S.batt - 6); dtr.t = 0.12; } else S.dAmmo = S.dMax; };
 const gear = i => { if (GEAR[i].left <= 0) GEAR[i].left = GEAR[i].cd; };
-function act(kind){ if (ACT.kind) return; ACT.kind = kind; ACT.t = 0; setAim(false); doorState.reset(); hackState.reset(); scanState.reset(); }
+function act(kind){ if (ACT.kind) return; ACT.kind = kind; ACT.t = 0; setAim(false); statDec.cur = statDec.prev = ''; }
 const tr = {t: 0}, dtr = {t: 0};
 // buttons (side rail on desktop, the on-screen dock on phones) share data-a names
 const BTN = {aim: () => setAim(!S.aim), fire: () => { if (!S.aim) setAim(true); fire(); }, reload, type: cycleType, mark, drone: droneFire,
@@ -367,7 +377,7 @@ function frame(now){
   rig.position.z += S.recoil*0.022; rig.position.y -= rl*0.05;
   rig.quaternion.copy(_qa); rig.rotateX(S.recoil*0.07 - rl*0.35); rig.rotateZ(rl*0.5);
   wrist.quaternion.copy(rig.quaternion).invert();                  // display faces the eye, centred on the cuff
-  wrist.scale.setScalar(lerp(1.0, 1.35, actK)*(portrait ? lerp(1.55, 1.02, actK) : 1));                     // action rings sit clear of the (closer) cuff
+  wrist.scale.setScalar(lerp(1.0, 1.12, actK)*(portrait ? lerp(1.55, 0.95, actK) : 1));                     // action rings sit clear of the (closer) cuff
   flash.material.opacity = S.flash; flash.material.rotation = Math.random()*6; flash.scale.setScalar(0.06 + S.flash*0.06);
   crystal.rotation.y += dt*0.4;
 
