@@ -149,7 +149,7 @@ const S = {aim: false, ammo: 24, max: 30, mags: 3, type: 0, reload: 0, dAmmo: 2,
 const TYPES = ['STD', 'AP', 'EMP'];
 const GEAR = [{cd: 8, left: 0, ready: 0}, {cd: 5, left: 0, ready: 0}, {cd: 14, left: 0, ready: 0}];
 const ACT = {kind: '', t: 0};                       // active bracelet action: 'door' | 'hack' | 'scan'
-const ACT_LEN = {door: 2.6, hack: 3.4, scan: 3.6};
+const ACT_LEN = {door: 1.1, hack: 1.5, scan: 1.4};   // repeated all game long: short and out of the way
 let hudK = 0, aimK = 0, actK = 0, doorOpen = 0, doorHold = 0, hackLit = 0;
 
 // ---- shared arc language: segmented band + fading hairline with end caps + caret ----
@@ -231,8 +231,9 @@ function drawDecode(dec, x, y, size, al=1){
     [[x - 6, y - h, 1, 1], [x + w + 4, y - h, -1, 1], [x - 6, y + h, 1, -1], [x + w + 4, y + h, -1, -1]].forEach(([bx, by, sx, sy]) => {
       g.beginPath(); g.moveTo(bx, by + sy*8); g.lineTo(bx, by); g.lineTo(bx + sx*8, by); g.stroke(); }); } }
 
-// ---- aim HUD: a fine arc frame round the wrist; rounds read as decoded numbers, contextual lines decode in along the arc ----
-const A0 = 66, A1 = -2, R_ARC = 196;
+// ---- aim HUD: the bracelet as a projector — rays fan out to a light-sheet arc; its lit edge is the magazine,
+//      the count is a scan-lined hologram. (After the diegetic projections in Dead Space and the clean light-line UI of Oblivion.)
+const A0 = 68, A1 = 0, R_IN = 158, R_EDGE = 212, R_SCALE = 224;
 const PEEK = {drone: 0, mark: 0};
 const AIMD = {t0: 0, rl: false, pulse: -9};
 const countDec = new Decoder('24', {base: 0.04, span: 0.22}), magDec = new Decoder('×3', {base: 0.06, span: 0.25});
@@ -245,79 +246,87 @@ function drawRoller(x, y, size, al){ const n = TYPES.length, p = roll.pos, movin
     g.save(); g.translate(x, y + Math.sin(ang)*size*1.25); g.scale(1, cs); g.globalAlpha = al*cs;
     spaced(3); text(TYPES[((k % n) + n) % n], 0, 0, size, Math.abs(d) < 0.5 ? W(1) : E(0.7), 'left', Math.abs(d) < 0.5); spaced(0); g.restore(); }
   g.globalAlpha = 1; }
-function ctxLine(dec, str, show, a, al){ if (!show){ dec.cur = dec.prev = ''; return; } dec.set(str); const [x, y] = P(R_ARC + 18, a);
-  g.globalAlpha = al; drawDecode(dec, x, y, 16, al); g.globalAlpha = 1; }
+function ctxLine(dec, str, show, a, al){ if (!show){ dec.cur = dec.prev = ''; return; } dec.set(str); const [x, y] = P(R_SCALE + 14, a);
+  g.globalAlpha = al; drawDecode(dec, x, y, 15, al); g.globalAlpha = 1; }
+function sheet(a0, a1, alpha){ if (a0 - a1 < 0.2) return;                 // translucent wedge between the cuff and the edge
+  const gr = g.createRadialGradient(C, C, R_IN, C, C, R_EDGE); gr.addColorStop(0, H(0)); gr.addColorStop(0.75, H(alpha*0.45)); gr.addColorStop(1, H(alpha));
+  g.fillStyle = gr; g.beginPath(); g.arc(C, C, R_EDGE, -a0*D2R, -a1*D2R, false); g.arc(C, C, R_IN, -a1*D2R, -a0*D2R, true); g.closePath(); g.fill(); }
 function drawAim(T){
-  const kT = ease(clamp((hudK - 0.2)/0.5)), kA = ease(clamp(hudK/0.55)), rl = S.reload > 0;
+  const kA = ease(clamp(hudK/0.5)), kT = ease(clamp((hudK - 0.25)/0.5)), rl = S.reload > 0;
   if (kA <= 0) return;
   if (rl) AIMD.rl = true; else if (AIMD.rl){ AIMD.rl = false; countDec.scramble(); }
-  const low = S.ammo <= 10 && !rl, flick = low ? 0.55 + 0.45*hash(7, Math.floor(T*12)) : 1;
-  const aEnd = lerp(A0, A1, kA);
-  // the frame: hairline with minor / major ticks, a short inner accent arc, end caps; a spark draws it open
-  g.globalAlpha = flick; hair(R_ARC, A0, aEnd, 1, 0);
-  for (let a = A0; a >= aEnd; a -= 3){ const major = Math.round(a) % 15 === 0; tick(R_ARC - 5, a, major ? 9 : 4, major ? 1.5 : 1, H(major ? 0.7 : 0.4)); }
-  arc(R_ARC - 12, A0, lerp(A0, 40, kA), 2.5, E(0.75));
-  if (hudK < 1) dot(R_ARC, aEnd, 4, true, W(1));
-  // reload: the hairline charges from the top down; shot: a light streak runs up the arc from the count
-  if (rl){ const k = clamp(1 - S.reload/1.4); arc(R_ARC, A0, lerp(A0, A1, k), 3, W(0.95)); }
-  const ps = T - AIMD.pulse; if (ps < 0.28){ const a = lerp(A1, A0, ps/0.28); arc(R_ARC, Math.min(A0, a + 8), Math.max(A1, a - 8), 3, W(1 - ps/0.28)); }
+  const low = S.ammo <= 10 && !rl, flick = (low ? 0.6 + 0.4*hash(7, Math.floor(T*12)) : 1)*(0.92 + 0.08*hash(3, Math.floor(T*30)));
+  const open = lerp(A0, A1, kA), frac = rl ? clamp(1 - S.reload/1.4) : S.ammo/S.max, aAmmo = lerp(A0, A1, frac), lit = Math.max(open, aAmmo);
+  g.globalAlpha = flick;
+  // projection: faint rays from the cuff to the edge, a light sheet that is brighter over the remaining magazine
+  for (let k=0;k<=6;k++){ const a = lerp(A0, open, k/6), [x0, y0] = P(R_IN, a), [x1, y1] = P(R_EDGE, a);
+    const gr = g.createLinearGradient(x0, y0, x1, y1); gr.addColorStop(0, H(0)); gr.addColorStop(1, H(0.35));
+    g.strokeStyle = gr; g.lineWidth = 1; g.beginPath(); g.moveTo(x0, y0); g.lineTo(x1, y1); g.stroke(); }
+  sheet(A0, lit, 0.2); sheet(lit, open, 0.06);
+  // the edge: bright over what is left in the magazine, a faint line beyond; a hot point where it ends
+  arc(R_EDGE, A0, open, 1, H(0.3)); arc(R_EDGE, A0, lit, 6, H(0.14)); arc(R_EDGE, A0, lit, 2.4, E(1));
+  if (frac > 0 && kA > 0.98) dot(R_EDGE, aAmmo, 3.4 + S.recoil*2, true, W(1));
+  if (hudK < 1) dot(R_EDGE, open, 4, true, W(1));
+  const ps = T - AIMD.pulse; if (ps < 0.22){ const a = lerp(aAmmo, A0, ps/0.22); arc(R_EDGE, Math.min(A0, a + 6), a - 6, 3, W(1 - ps/0.22)); }   // shot: a glint runs back up the edge
+  // precision scale outside: fine ticks every 2°, labelled every 10°
+  for (let a = A0; a >= open; a -= 2){ const major = Math.round(a) % 10 === 0; tick(R_SCALE, a, major ? 8 : 3, 1, H(major ? 0.6 : 0.3)); }
   g.globalAlpha = 1;
   if (kT <= 0) return;
-  // count · mags · round type at the end of the arc
+  // micro labels at the start of the arc
+  g.globalAlpha = kT; { const [x, y] = P(R_SCALE + 10, A0 + 4); spaced(3); text('RND', x, y, 11, E(0.6)); spaced(0); }
+  // the count: hologram digits with a ghost offset and scanlines, decoded where they change
   countDec.set(rl ? '--' : String(S.ammo).padStart(2, '0')); magDec.set('×' + S.mags);
-  const [x, y] = P(R_ARC + 14, A1 - 10);
-  g.globalAlpha = kT; drawDecode(countDec, x, y + 8, 60, kT*flick);
-  g.globalAlpha = kT; drawDecode(magDec, x + 82, y - 12, 20, kT);
+  const [x, y] = P(R_EDGE + 16, A1 - 10), jit = S.recoil*3;
+  g.save(); g.globalAlpha = kT*0.35; drawDecode(countDec, x + 3 + jit, y + 10, 64, 0.35*flick); g.restore();
+  g.globalAlpha = kT; drawDecode(countDec, x - jit*0.5, y + 8, 64, kT*flick);
+  g.globalCompositeOperation = 'destination-out'; g.fillStyle = 'rgba(0,0,0,0.55)';
+  for (let sy = y - 24 + (T*40 % 4); sy < y + 44; sy += 4) g.fillRect(x - 6, sy, 96, 1);
+  g.globalCompositeOperation = 'source-over';
+  g.globalAlpha = kT; drawDecode(magDec, x + 84, y - 14, 18, kT);
   roll.target = (() => { let t = S.type + TYPES.length*Math.floor(roll.target/TYPES.length); while (t < roll.target - 1e-6) t += TYPES.length; return t; })();
-  drawRoller(x + 2, y + 52, 22, kT);
+  drawRoller(x + 2, y + 52, 21, kT);
   // contextual lines decode in beside the arc only while they matter
   const cool = GEAR.map((G, i) => G.left > 0 ? ['GRP', 'TAG', 'SHD'][i] + ' ' + Math.ceil(G.left) + 's' : '').filter(Boolean).join('  ');
-  ctxLine(droneDec, 'P-07 ' + Math.round(S.batt) + '%  RD ' + S.dAmmo, PEEK.drone > 0 || S.batt <= 20, 56, kT*Math.max(clamp(PEEK.drone/0.4), S.batt <= 20 ? 1 : 0));
-  ctxLine(gearDec, cool, !!cool, 44, kT);
-  ctxLine(markDec, 'MARK ' + S.mark + '/3', PEEK.mark > 0, 32, kT*clamp(PEEK.mark/0.4)); }
+  ctxLine(droneDec, 'P-07 ' + Math.round(S.batt) + '%  RD ' + S.dAmmo, PEEK.drone > 0 || S.batt <= 20, 58, kT*Math.max(clamp(PEEK.drone/0.4), S.batt <= 20 ? 1 : 0));
+  ctxLine(gearDec, cool, !!cool, 46, kT);
+  ctxLine(markDec, 'MARK ' + S.mark + '/3', PEEK.mark > 0, 34, kT*clamp(PEEK.mark/0.4)); }
 
 // ---- bracelet actions: tracks freezing into a window on a short arc over the outer side of the wrist ----
 const HEX = '0123456789ABCDEF';
 const B0 = 80, B1 = -12, BM = (B0 + B1)/2;           // short arc (92°) and its window
 const along = k => lerp(B0, B1, k);
 const R_STAT = 286;
-const statDec = new Decoder('');
+const statDec = new Decoder('', {base: 0.03, span: 0.22});
 function statLabel(s){ const [x, y] = P(R_STAT, BM + 9); spaced(4); text(s, x, y, 16, E(0.75)); spaced(0); }
-function statBig(s){ statDec.set(s); const [x, y] = P(R_STAT, BM); drawDecode(statDec, x, y, 36, g.globalAlpha); }
-const subDec = new Decoder('', {base: 0.05, span: 0.45});
-function statSub(s){ subDec.set(s); const [x, y] = P(R_STAT, BM - 9); drawDecode(subDec, x, y + 6, 17, g.globalAlpha); }
+function statBig(s){ statDec.set(s); const [x, y] = P(R_STAT, BM); drawDecode(statDec, x, y, 30, g.globalAlpha); }
+const subDec = new Decoder('', {base: 0.03, span: 0.2});
+function statSub(s){ subDec.set(s); const [x, y] = P(R_STAT, BM - 7); drawDecode(subDec, x, y + 4, 15, g.globalAlpha); }
 // a cipher track: blocks scroll until `locked`, then only the window stays lit
 function cipher(r, t, speed, seed, locked, w=6){ const n = 24, sh = Math.floor(t*speed);
   segBand(r, B0, B1, n, w, j => { const a = along((j + 0.5)/n), f = fall(a, BM, 44), inWin = Math.abs(a - BM) < 5;
     if (locked) return inWin ? W(1) : H(0.1*f);
     return ((j*7 + sh*3 + seed*11) % 5) < 2 ? E(0.15 + 0.6*f) : H(0.06 + 0.06*f); }, 0.3); }
-function drawDoor(t){ const PIN = [0.35, 0.55, 0.75, 0.95], R = [184, 200, 216, 232], fade = 1 - clamp((t - 2.2)/0.4);
+function drawDoor(t){ const PIN = [0.12, 0.2, 0.28, 0.36], R = [190, 204, 218], fade = clamp(t/0.08)*(1 - clamp((t - 0.8)/0.3));
   g.globalAlpha = fade;
-  R.forEach((r, i) => { const set = t > PIN[i]; cipher(r, t, 16 + i*6, i, set, 5);
-    const fl = set ? clamp(1 - (t - PIN[i])*4) : 0; if (fl > 0) arc(r, BM + 5, BM - 5, 12, W(0.45*fl)); });
-  windowMarks(BM, 6, 174, 242); hair(250, B0, B1, 1, 8);
-  statLabel('DOOR B-12'); statBig(t < 0.95 ? 'LOCKED' : 'OPEN'); statSub(PIN.filter(p => t > p).length + '/4 PINS'); g.globalAlpha = 1; }
-function drawHack(t){ const LOCK = [0.9, 1.6, 2.3], R = [186, 204, 222], fade = 1 - clamp((t - 3.0)/0.4);
+  R.forEach((r, i) => { const set = t > PIN[i]; cipher(r, t, 22 + i*6, i, set, 4);
+    const fl = set ? clamp(1 - (t - PIN[i])*6) : 0; if (fl > 0) arc(r, BM + 5, BM - 5, 10, W(0.45*fl)); });
+  windowMarks(BM, 6, 182, 226); hair(232, B0, B1, 0.8);
+  statBig(t < 0.4 ? 'LOCKED' : 'OPEN'); g.globalAlpha = 1; }
+function drawHack(t){ const LOCK = [0.35, 0.6, 0.85], R = [190, 206, 222], fade = clamp(t/0.08)*(1 - clamp((t - 1.15)/0.35));
   g.globalAlpha = fade;
-  R.forEach((r, i) => { const locked = t > LOCK[i]; cipher(r, t, 14 + i*6, i, locked, 7);
-    const fl = locked ? clamp(1 - (t - LOCK[i])*4) : 0; if (fl > 0) arc(r, BM + 5, BM - 5, 14, W(0.4*fl)); });
-  windowMarks(BM, 6, 176, 232); hair(240, B0, B1, 1, 8);
-  for (let j=0;j<8;j++){ const a = B0 - 5 - j*11.5 - (t*22 % 11.5); const [x, y] = P(256, a); g.globalAlpha = fade*fall(a, BM, 50); text(HEX[(Math.random()*16)|0], x, y, 14, H(0.6), 'center'); }
-  g.globalAlpha = fade; const n = LOCK.filter(l => t > l).length;
-  statLabel('NODE 04'); statBig(t > 2.45 ? 'ACCESS' : 'SYNC ' + n + '/3'); statSub(Math.floor(clamp(t/2.4)*20)*5 + '%'); g.globalAlpha = 1; }
-function drawScan(t){ const p = clamp(t/2.0), k = ease(clamp((t - 2.0)/0.4)), fade = 1 - clamp((t - 3.2)/0.4);
+  R.forEach((r, i) => { const locked = t > LOCK[i]; cipher(r, t, 20 + i*6, i, locked, 6);
+    const fl = locked ? clamp(1 - (t - LOCK[i])*6) : 0; if (fl > 0) arc(r, BM + 5, BM - 5, 12, W(0.4*fl)); });
+  windowMarks(BM, 6, 182, 230); hair(238, B0, B1, 0.8);
+  const n = LOCK.filter(l => t > l).length; statBig(t > 0.9 ? 'ACCESS' : 'SYNC ' + n + '/3'); g.globalAlpha = 1; }
+function drawScan(t){ const p = clamp(t/0.8), k = ease(clamp((t - 0.8)/0.2)), fade = clamp(t/0.08)*(1 - clamp((t - 1.05)/0.35));
   g.globalAlpha = fade;
-  const rot = t < 2 ? t*70 : 140 + (1 - Math.exp(-(t - 2)*7))*12;
+  const rot = t < 0.8 ? t*160 : 128 + (1 - Math.exp(-(t - 0.8)*12))*10;
   for (let m=-24;m<=24;m++){ const a = BM + m*4 + (rot % 4); if (a > B0 || a < B1) continue; g.globalAlpha = fade*fall(a, BM, 44);
-    tick(210, a, m % 5 ? 8 : 18, m % 5 ? 1.5 : 2.5, E(0.85)); }
+    tick(208, a, m % 5 ? 7 : 16, m % 5 ? 1.5 : 2.5, E(0.85)); }
   g.globalAlpha = fade;
-  const spread = p*(B0 - BM); segBand(190, B0, B1, 24, 8, j => { const a = along((j + 0.5)/24); return Math.abs(a - BM) <= spread ? E(0.25 + 0.65*fall(a, BM, 50)) : H(0.08); }, 0.3);
-  windowMarks(BM, 5, 178, 232); hair(240, B0, B1, 1);
-  statLabel(p < 1 ? 'PHASE SCAN' : 'IDENTIFIED'); statBig(p < 1 ? 'SCANNING' : 'OBJECT 03');
-  statSub(p < 1 ? Math.floor(p*20)*5 + '%' : '위상 결정 파편 · RECIPE +1');
-  if (k > 0){ const [x, y] = P(R_STAT, BM - 9); g.globalAlpha = fade*k;
-    [['Fe-Ni', .62], ['PHASE', .28], ['POLY', .10]].forEach(([n, v], i) => { const yy = y + 38 + i*22; text(n, x, yy, 15, H(0.8));
-      for (let b=0;b<10;b++){ g.fillStyle = b < Math.round(v*10*k) ? E(1) : H(0.18); g.fillRect(x + 70 + b*13, yy - 3, 10, 5); } }); }
+  const spread = p*(B0 - BM); segBand(192, B0, B1, 24, 6, j => { const a = along((j + 0.5)/24); return Math.abs(a - BM) <= spread ? E(0.25 + 0.65*fall(a, BM, 50)) : H(0.08); }, 0.3);
+  windowMarks(BM, 5, 182, 226); 
+  statBig(p < 1 ? 'SCANNING' : 'OBJECT 03'); if (k > 0){ g.globalAlpha = fade*k; statSub('위상 결정 파편 · RECIPE +1'); }
   g.globalAlpha = 1; }
 
 // ---------------- world effects driven by the bracelet ----------------
@@ -385,13 +394,13 @@ function frame(now){
   look.x = lerp(look.x, look.tx, 1 - Math.exp(-dt*4)); look.y = lerp(look.y, look.ty, 1 - Math.exp(-dt*4));
   camera.rotation.set(-look.y*0.1, -look.x*0.16, 0, 'YXZ');
   aimK = lerp(aimK, S.aim ? 1 : 0, 1 - Math.exp(-dt*14));
-  actK = lerp(actK, ACT.kind ? 1 : 0, 1 - Math.exp(-dt*(ACT.kind ? 9 : 6)));
+  actK = lerp(actK, ACT.kind ? 1 : 0, 1 - Math.exp(-dt*(ACT.kind ? 14 : 8)));
   hudK = clamp(hudK + (S.aim ? dt/0.4 : -dt/0.16));
   const portrait = camera.aspect < 1, nar = portrait ? 0.18 : clamp(camera.aspect/1.6, 0.42, 1);   // phones: wider view, arm pulled in so cuff + arcs stay on screen
   const fov0 = portrait ? 66 : 55; camera.fov = lerp(fov0, fov0 - 8, aimK); camera.updateProjectionMatrix();
-  _p.lerpVectors(POSE.hip.p, POSE.ads.p, aimK).lerp(POSE.wrist.p, actK);
+  _p.lerpVectors(POSE.hip.p, POSE.ads.p, aimK).lerp(POSE.wrist.p, actK*0.45);
   _q[0].setFromEuler(POSE.hip.r); _q[1].setFromEuler(POSE.ads.r); _q[2].setFromEuler(POSE.wrist.r);
-  _qa.slerpQuaternions(_q[0], _q[1], aimK).slerp(_q[2], actK);
+  _qa.slerpQuaternions(_q[0], _q[1], aimK).slerp(_q[2], actK*0.45);   // only a small wrist turn: the hands stay on the gun
   const sway = RM ? 0 : (1 - aimK*0.75);
   rig.scale.setScalar(portrait ? 0.44 : 0.62); rig.position.copy(_p); rig.position.x *= nar; if (portrait) rig.position.y += 0.02;
   rig.position.x += Math.sin(T*1.1)*0.003*sway - (look.tx - look.x)*0.02; rig.position.y += Math.sin(T*2.2)*0.002*sway + (look.ty - look.y)*0.015;
@@ -399,7 +408,7 @@ function frame(now){
   rig.position.z += S.recoil*0.022; rig.position.y -= rl*0.05;
   rig.quaternion.copy(_qa); rig.rotateX(S.recoil*0.07 - rl*0.35); rig.rotateZ(rl*0.5);
   wrist.quaternion.copy(rig.quaternion).invert();                  // display faces the eye, centred on the cuff
-  wrist.scale.setScalar(lerp(1.0, 1.32, actK)*(portrait ? lerp(1.45, 1.02, actK) : 1));                     // action rings sit clear of the (closer) cuff
+  wrist.scale.setScalar(lerp(1.0, 1.2, actK)*(portrait ? lerp(1.45, 1.05, actK) : 1));                     // action rings sit clear of the (closer) cuff
   flash.material.opacity = S.flash; flash.material.rotation = Math.random()*6; flash.scale.setScalar(0.06 + S.flash*0.06);
   crystal.rotation.y += dt*0.4;
 
@@ -416,18 +425,18 @@ function frame(now){
 
   // ---- world side of each action (the bracelet's beam / cone, and the result) ----
   const t = ACT.t; let rayOp = 0;
-  if (ACT.kind === 'door'){ doorAnchor.getWorldPosition(_w); seg(ray, 0, _v, _w); rayOp = clamp(t/0.25)*(1 - clamp((t - 1.1)/0.25))*(0.6 + Math.random()*0.4); if (t > 1.1) doorHold = 4; }
-  if (ACT.kind === 'hack'){ termAnchor.getWorldPosition(_w); seg(ray, 0, _v, _w); rayOp = clamp(t/0.25)*(1 - clamp((t - 2.45)/0.25))*(0.5 + Math.random()*0.5);
-    tScreenM.color.setHex(t > 2.45 ? 0x5fd6c2 : (Math.floor(t*14) % 2 ? 0x2a6c62 : 0x173c37)); if (t > 2.45) hackLit = 4; }
+  if (ACT.kind === 'door'){ doorAnchor.getWorldPosition(_w); seg(ray, 0, _v, _w); rayOp = clamp(t/0.08)*(1 - clamp((t - 0.4)/0.15))*(0.6 + Math.random()*0.4); if (t > 0.4) doorHold = 4; }
+  if (ACT.kind === 'hack'){ termAnchor.getWorldPosition(_w); seg(ray, 0, _v, _w); rayOp = clamp(t/0.08)*(1 - clamp((t - 0.9)/0.15))*(0.5 + Math.random()*0.5);
+    tScreenM.color.setHex(t > 0.9 ? 0x5fd6c2 : (Math.floor(t*14) % 2 ? 0x2a6c62 : 0x173c37)); if (t > 0.9) hackLit = 4; }
   ray.material.opacity = rayOp;
   doorHold = Math.max(0, doorHold - dt); doorOpen = lerp(doorOpen, doorHold > 0 ? 1 : 0, 1 - Math.exp(-dt*5));
   leafL.position.x = -0.35 - doorOpen*0.66; leafR.position.x = 0.35 + doorOpen*0.66; doorLockM.color.setHex(doorHold > 0 ? 0x2e8f80 : 0x3a1418);
   hackLit = Math.max(0, hackLit - dt); if (!ACT.kind || ACT.kind !== 'hack') tScreenM.color.setHex(hackLit > 0 ? 0x5fd6c2 : 0x1d4a44);
-  const scanning = ACT.kind === 'scan' && t < 2.1;
-  if (ACT.kind === 'scan'){ const sh = 0.78 + clamp(t/2.0)*0.62, rr = 0.3*(1 - 0.5*clamp((sh - 0.9)/0.5));
+  const scanning = ACT.kind === 'scan' && t < 0.85;
+  if (ACT.kind === 'scan'){ const sh = 0.78 + clamp(t/0.8)*0.62, rr = 0.3*(1 - 0.5*clamp((sh - 0.9)/0.5));
     scanRing.position.y = sh; scanRing.scale.setScalar(rr/0.3);
     for (let i=0;i<8;i++){ const a = i/8*Math.PI*2 + t*2; seg(cone, i, _v, _w.set(relic.position.x + Math.cos(a)*rr, sh, relic.position.z + Math.sin(a)*rr)); }
-    crystalWire.material.opacity = clamp(t/2.0)*0.55*(1 - clamp((t - 3.2)/0.4)); }
+    crystalWire.material.opacity = clamp(t/0.8)*0.55*(1 - clamp((t - 1.0)/0.4)); }
   else crystalWire.material.opacity = 0;
   scanRing.material.opacity = scanning ? 0.9 : 0; cone.material.opacity = scanning ? 0.28 : 0;
 
