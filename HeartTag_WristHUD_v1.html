@@ -1,0 +1,266 @@
+<title>Wrist Analyzer HUD</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600&family=Share+Tech+Mono&display=swap">
+<style>
+/* Wrist HUD mock-up: same analysis-panel tone as Heart Tag v29 (cream lines, orange accent, mono type) */
+:root{
+  --bg:#070a0e; --panel:#0c1117; --line:#1d2630; --fg:#c9d3dd; --muted:#7d8a97; --head:#f2ede4;
+  --gold:#E8C98C; --ruby:#d0103a;
+  --hg:242,226,189; --acc:#ff8a3a; --led:#ff2a3c;
+  --f-display:'Chakra Petch',system-ui,sans-serif; --f-mono:'Share Tech Mono',ui-monospace,monospace;
+  color-scheme:dark;
+}
+html,body{height:100%}
+body{background:var(--bg);color:var(--fg);font-family:var(--f-display);margin:0}
+.wrap{display:flex;flex-wrap:wrap;min-height:100%;box-sizing:border-box}
+.stage{flex:999 1 560px;min-width:0;position:relative;min-height:70vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:48px 16px 24px;box-sizing:border-box;
+  background:radial-gradient(ellipse at 50% 70%, #101820 0%, var(--bg) 70%)}
+.tag{position:absolute;left:16px;top:14px;font:400 11px var(--f-mono);letter-spacing:.14em;color:var(--muted)}
+.rail{flex:1 1 300px;box-sizing:border-box;padding:24px 16px 28px;display:flex;flex-direction:column;gap:18px;border-left:1px solid var(--line);background:var(--panel)}
+h1{margin:0;font-size:24px;font-weight:600;color:var(--head);text-wrap:balance}
+p{margin:0;font-size:13px;line-height:1.6;color:#9aa6b2;max-width:46ch}
+.lab{font:400 11px var(--f-mono);letter-spacing:.14em;color:var(--muted);text-transform:uppercase}
+.row{display:flex;flex-wrap:wrap;gap:8px}
+button{appearance:none;border:1px solid #2a3440;background:#0f151c;color:var(--fg);font:500 13px var(--f-display);padding:0 14px;height:44px;min-width:44px;cursor:pointer}
+button:hover{border-color:var(--gold);color:#fff}
+button:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+button[aria-pressed="true"]{border-color:var(--gold);color:var(--gold)}
+.seq{display:grid;grid-template-columns:auto 1fr;gap:6px 12px;font-size:12.5px}
+.seq span:nth-child(odd){font-family:var(--f-mono);color:var(--muted);white-space:nowrap}
+@media (min-width: 900px){ .wrap{height:100vh;flex-wrap:nowrap} .stage{min-height:0} .rail{overflow-y:auto;max-width:400px} }
+
+/* ---- holo panel ---- */
+.holo{position:relative;width:min(560px,100%);box-sizing:border-box;padding:18px 20px 16px;
+  background:linear-gradient(180deg, rgba(120,150,175,.10), rgba(80,100,120,.04));
+  border:1px solid rgba(var(--hg),.45);font-family:var(--f-mono);color:rgba(var(--hg),.85);
+  transition:opacity .25s, transform .25s}
+.holo.off{opacity:.18;transform:translateY(6px) scaleY(.96)}
+.holo::before,.holo::after,.holo>.bk::before,.holo>.bk::after{content:"";position:absolute;width:14px;height:14px;border:2px solid rgba(var(--hg),.95)}
+.holo::before{left:-3px;top:-3px;border-right:0;border-bottom:0}
+.holo::after{right:-3px;top:-3px;border-left:0;border-bottom:0}
+.holo>.bk::before{left:-3px;bottom:-3px;border-right:0;border-top:0}
+.holo>.bk::after{right:-3px;bottom:-3px;border-left:0;border-top:0}
+.hd{display:flex;justify-content:space-between;align-items:baseline;gap:12px;font-size:12px;letter-spacing:.16em;padding-bottom:8px;border-bottom:1px solid rgba(var(--hg),.3)}
+.hd b{font-weight:400;color:rgba(var(--hg),.95)}
+.dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--acc);margin-right:6px;vertical-align:1px;animation:blink 1.6s steps(2) infinite}
+@keyframes blink{50%{opacity:.25}}
+.grid{display:grid;grid-template-columns:1.25fr 1fr;gap:14px 18px;padding-top:12px}
+@media (max-width:480px){ .grid{grid-template-columns:1fr} }
+.sec{display:flex;flex-direction:column;gap:7px;min-width:0}
+.st{font-size:10.5px;letter-spacing:.2em;color:rgba(var(--hg),.5)}
+.kv{display:flex;justify-content:space-between;align-items:center;gap:10px;font-size:12px;letter-spacing:.08em}
+.kv span:first-child{color:rgba(var(--hg),.55)}
+.big{font-size:40px;line-height:1;color:var(--acc);letter-spacing:.04em;font-variant-numeric:tabular-nums}
+.big small{font-size:16px;color:rgba(var(--hg),.5)}
+.big.low{color:var(--led)}
+.segs{display:flex;gap:2px;height:7px}
+.segs i{flex:1;background:rgba(var(--hg),.14)}
+.segs i.on{background:var(--acc)}
+.segs.low i.on{background:var(--led)}
+.chips{display:flex;gap:4px}
+.chips span{font-size:11px;padding:2px 6px;border:1px solid rgba(var(--hg),.22);color:rgba(var(--hg),.4)}
+.chips span.on{border-color:var(--acc);color:var(--acc)}
+.pips{display:flex;gap:4px}
+.pips i{width:10px;height:10px;border:1px solid rgba(var(--hg),.5);transform:rotate(45deg) scale(.8)}
+.pips i.on{background:var(--acc);border-color:var(--acc)}
+.bar{height:5px;background:rgba(var(--hg),.15);position:relative;flex:1}
+.bar>i{position:absolute;inset:0 auto 0 0;background:var(--acc)}
+.gear{display:flex;gap:14px}
+.ring{display:flex;flex-direction:column;align-items:center;gap:4px;font-size:10px;letter-spacing:.12em;color:rgba(var(--hg),.6)}
+.ring svg{width:40px;height:40px;transform:rotate(-90deg)}
+.ring circle{fill:none;stroke-width:3}
+.ring .tr{stroke:rgba(var(--hg),.15)}
+.ring .ar{stroke:var(--acc);transition:stroke-dashoffset .1s linear}
+.ring.rdy{color:var(--acc)}
+.ctx{margin-top:14px;padding-top:10px;border-top:1px solid rgba(var(--hg),.3);min-height:84px;display:flex;flex-direction:column;gap:7px}
+.ctx .ttl{display:flex;justify-content:space-between;font-size:13px;letter-spacing:.2em;color:var(--acc)}
+.ctx .sub{font-family:var(--f-display);font-size:13px;color:rgba(var(--hg),.72)}
+.hex{font-size:11px;color:rgba(var(--hg),.35);letter-spacing:.1em;white-space:nowrap;overflow:hidden}
+.comp{display:grid;grid-template-columns:7.5em 1fr;gap:5px 10px;align-items:center;font-size:11px;color:rgba(var(--hg),.6)}
+.ft{margin-top:12px;font-size:10px;letter-spacing:.14em;color:rgba(var(--hg),.4);display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap}
+
+/* ---- bracelet emitter (top view) ---- */
+.beams{width:min(560px,100%);height:46px}
+.beams line{stroke:rgba(255,233,200,.45);stroke-width:1}
+.band{width:min(360px,80%);height:54px;position:relative;border-radius:8px;
+  background:linear-gradient(180deg,#d9dde2,#9ea5ad);box-shadow:0 0 0 2px #1a1f26 inset, 0 10px 30px rgba(0,0,0,.6);
+  display:flex;flex-direction:column;justify-content:space-evenly;padding:0 14px;box-sizing:border-box}
+.band .ln{height:4px;background:#2a1012;position:relative;border-radius:2px;overflow:hidden}
+.band .ln>i{position:absolute;inset:0 auto 0 0;background:var(--led);box-shadow:0 0 8px var(--led);transition:width .15s}
+.band .cap{position:absolute;right:-74px;top:50%;transform:translateY(-50%);font:400 10px var(--f-mono);letter-spacing:.14em;color:var(--muted)}
+@media (max-width:560px){ .band .cap{display:none} }
+@media (prefers-reduced-motion: reduce){ .dot{animation:none} .holo{transition:none} }
+</style>
+<div class="wrap">
+  <div class="stage">
+    <div class="tag" id="state">WRIST-ANALYZER · AIM</div>
+
+    <section class="holo" id="holo" aria-label="팔찌 투사 HUD">
+      <span class="bk"></span>
+      <div class="hd"><b>WRIST-ANALYZER · R-ARM</b><span><span class="dot"></span>P-07 LINK</span></div>
+
+      <div class="grid">
+        <!-- weapon -->
+        <div class="sec">
+          <div class="st">WEAPON</div>
+          <div class="big" id="ammo">24<small> / 30</small></div>
+          <div class="segs" id="ammoSegs"></div>
+          <div class="kv"><span>MAG</span><span id="mags">×3</span></div>
+          <div class="kv"><span>ROUND</span><span class="chips" id="types"></span></div>
+        </div>
+        <!-- drone -->
+        <div class="sec">
+          <div class="st">DRONE · P-07</div>
+          <div class="kv"><span>AMMO</span><span class="pips" id="dAmmo"></span></div>
+          <div class="kv"><span>BATT</span><span class="bar" style="max-width:110px"><i id="dBatt"></i></span><span id="dBattT" style="min-width:3.2em;text-align:right">76%</span></div>
+          <div class="kv"><span>MARK</span><span class="pips" id="dMark"></span></div>
+          <div class="st" style="margin-top:6px">GEAR</div>
+          <div class="gear" id="gear"></div>
+        </div>
+      </div>
+
+      <div class="ctx" id="ctx" aria-live="polite"></div>
+
+      <div class="ft"><span>SYNC LINK · HEART TAG (SHOULDER)</span><span id="clock">T+00:00</span></div>
+    </section>
+
+    <svg class="beams" viewBox="0 0 560 46" preserveAspectRatio="none" aria-hidden="true">
+      <line x1="200" y1="46" x2="2" y2="0"/><line x1="360" y1="46" x2="558" y2="0"/>
+      <line x1="230" y1="46" x2="140" y2="0"/><line x1="330" y1="46" x2="420" y2="0"/>
+    </svg>
+    <div class="band" aria-hidden="true">
+      <div class="ln"><i id="lnA" style="width:100%"></i></div>
+      <div class="ln"><i id="lnB" style="width:80%"></i></div>
+      <div class="ln"><i id="lnC" style="width:100%"></i></div>
+      <span class="cap">BRACELET</span>
+    </div>
+  </div>
+
+  <aside class="rail">
+    <h1>팔찌 HUD · 분석 톤 목업</h1>
+    <p>기본 상태(심박·동기화율 등)는 어깨 Heart Tag가 맡고, 팔찌는 무기·드론·손 동작 정보만 투사해요. 아래 상황 탭에 따라 하단 영역이 바뀝니다.</p>
+
+    <div class="lab">상황</div>
+    <div class="row" id="modes">
+      <button data-m="aim" aria-pressed="true">조준</button>
+      <button data-m="interact" aria-pressed="false">상호작용</button>
+      <button data-m="hack" aria-pressed="false">해킹</button>
+      <button data-m="scan" aria-pressed="false">스캔</button>
+      <button data-m="idle" aria-pressed="false">비조준</button>
+    </div>
+
+    <div class="lab">조작</div>
+    <div class="row">
+      <button id="bFire">사격</button>
+      <button id="bReload">재장전</button>
+      <button id="bType">탄종 변경</button>
+      <button id="bMark">드론 마킹</button>
+      <button id="bDrone">드론 사격</button>
+    </div>
+    <div class="row">
+      <button data-g="0">그래플</button>
+      <button data-g="1">태깅</button>
+      <button data-g="2">실드</button>
+    </div>
+
+    <div class="lab">표시 항목</div>
+    <div class="seq">
+      <span>WEAPON</span><span>잔탄(큰 숫자 + 세그먼트), 10발 이하에서 레드</span>
+      <span>MAG</span><span>예비 탄창 수</span>
+      <span>ROUND</span><span>탄종 STD / AP / EMP</span>
+      <span>DRONE AMMO</span><span>드론 장전 탄 (◆ 2칸, 장치 로더 암이 채움)</span>
+      <span>BATT</span><span>드론 배터리, 20% 이하에서 레드</span>
+      <span>MARK</span><span>드론 마킹 수 (최대 3)</span>
+      <span>GEAR</span><span>손목 기어 쿨타임 링, 다 차면 READY</span>
+      <span>CONTEXT</span><span>상호작용 · 해킹 · 스캔 진행도</span>
+      <span>BAND</span><span>팔찌 LED 3줄 = 잔탄 · 드론 배터리 · 기어 준비</span>
+    </div>
+  </aside>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const S = { mode:'aim', ammo:24, max:30, mags:3, type:0, dAmmo:2, dMax:2, batt:76, mark:2, mMax:3, prog:0, t0:performance.now() };
+const TYPES = ['STD','AP','EMP'];
+const GEAR = [{n:'GRP', cd:8, left:0}, {n:'TAG', cd:5, left:2.4}, {n:'SHD', cd:14, left:0}];
+const CIRC = 2*Math.PI*16;
+
+// static builders
+$('ammoSegs').innerHTML = '<i></i>'.repeat(S.max);
+$('types').innerHTML = TYPES.map(t => `<span>${t}</span>`).join('');
+$('gear').innerHTML = GEAR.map(g => `<div class="ring"><svg viewBox="0 0 40 40"><circle class="tr" cx="20" cy="20" r="16"/><circle class="ar" cx="20" cy="20" r="16" stroke-dasharray="${CIRC}" stroke-dashoffset="0"/></svg><span>${g.n}</span></div>`).join('');
+
+function pips(n, max){ return Array.from({length:max}, (_, i) => `<i class="${i < n ? 'on' : ''}"></i>`).join(''); }
+
+function renderStatic(){
+  const low = S.ammo <= 10;
+  $('ammo').innerHTML = `${String(S.ammo).padStart(2,'0')}<small> / ${S.max}</small>`;
+  $('ammo').classList.toggle('low', low);
+  const segs = $('ammoSegs'); segs.classList.toggle('low', low);
+  [...segs.children].forEach((s, i) => s.classList.toggle('on', i < S.ammo));
+  $('mags').textContent = '×' + S.mags;
+  [...$('types').children].forEach((c, i) => c.classList.toggle('on', i === S.type));
+  $('dAmmo').innerHTML = pips(S.dAmmo, S.dMax);
+  $('dMark').innerHTML = pips(S.mark, S.mMax);
+  $('dBatt').style.width = S.batt + '%';
+  $('dBatt').style.background = S.batt <= 20 ? 'var(--led)' : '';
+  $('dBattT').textContent = Math.round(S.batt) + '%';
+  $('lnA').style.width = (S.ammo / S.max * 100) + '%';
+  $('lnB').style.width = S.batt + '%';
+}
+
+// context strip per mode
+const HEXC = '0123456789ABCDEF';
+const rhex = n => Array.from({length:n}, () => HEXC[Math.random()*16|0]).join('');
+const CTX = {
+  aim:      () => `<div class="ttl"><span>AIM · P-07 VIEW</span><span>LINKED</span></div>
+                   <div class="sub">드론 시점 연동 · 마킹 대상 ${S.mark}기 실루엣 표시</div>
+                   <div class="kv"><span>TGT</span><span>${'◆ '.repeat(S.mark).trim() || '—'}</span></div>`,
+  interact: p => `<div class="ttl"><span>INTERACT · DOOR B-12</span><span>${Math.floor(p*100)}%</span></div>
+                   <div class="sub">${p < 1 ? '손을 대고 유지 · 잠금 해제 중' : '잠금 해제 완료'}</div>
+                   <div class="bar"><i style="width:${p*100}%"></i></div>`,
+  hack:     p => `<div class="ttl"><span>HACK · NODE 04</span><span>${Math.floor(p*100)}%</span></div>
+                   <div class="hex">${rhex(8)} ${rhex(8)} ${rhex(8)} ${rhex(8)} ${rhex(8)}</div>
+                   <div class="kv"><span>BYPASS</span><span class="segs" style="width:140px">${Array.from({length:4},(_,i)=>`<i class="${p*4>i+1-1e-6?'on':''}"></i>`).join('')}</span></div>`,
+  scan:     p => `<div class="ttl"><span>SCAN · OBJECT 03</span><span>${Math.floor(p*100)}%</span></div>
+                   <div class="sub">${p < 1 ? '위상 결정 파편 · 성분 분석 중' : '식별 완료 — 레시피 해금 · 소음흡수 핀'}</div>
+                   <div class="comp">${[['Fe-Ni 합금',.62],['위상 결정',.28],['폴리머',.10]].map(([n,v])=>`<span>${n}</span><span class="bar"><i style="width:${v*Math.min(1,p*1.4)*100}%"></i></span>`).join('')}</div>`,
+  idle:     () => `<div class="ttl"><span>STANDBY</span><span>—</span></div>
+                   <div class="sub">비조준 · 패널 최소화, 잔탄 라인만 팔찌에 유지</div>`
+};
+const DUR = { interact:1.6, hack:3.2, scan:2.4 };
+
+function setMode(m){
+  S.mode = m; S.prog = 0;
+  document.querySelectorAll('#modes button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.m === m)));
+  $('holo').classList.toggle('off', m === 'idle');
+  $('state').textContent = 'WRIST-ANALYZER · ' + m.toUpperCase();
+}
+document.querySelectorAll('#modes button').forEach(b => b.onclick = () => setMode(b.dataset.m));
+
+// controls
+$('bFire').onclick = () => { if (S.ammo > 0) S.ammo--; renderStatic(); };
+$('bReload').onclick = () => { if (S.mags > 0 && S.ammo < S.max){ S.mags--; S.ammo = S.max; } renderStatic(); };
+$('bType').onclick = () => { S.type = (S.type + 1) % TYPES.length; renderStatic(); };
+$('bMark').onclick = () => { S.mark = S.mark >= S.mMax ? 0 : S.mark + 1; renderStatic(); };
+$('bDrone').onclick = () => { if (S.dAmmo > 0){ S.dAmmo--; S.batt = Math.max(0, S.batt - 6); } else { S.dAmmo = S.dMax; } renderStatic(); };
+document.querySelectorAll('[data-g]').forEach(b => b.onclick = () => { const g = GEAR[+b.dataset.g]; if (g.left <= 0) g.left = g.cd; });
+
+let last = performance.now(), hexT = 0;
+function frame(now){
+  const dt = Math.min(0.1, (now - last) / 1000); last = now;
+  // gear cooldowns
+  let ready = 0;
+  document.querySelectorAll('#gear .ring').forEach((r, i) => { const g = GEAR[i]; g.left = Math.max(0, g.left - dt);
+    const k = 1 - g.left / g.cd; r.querySelector('.ar').style.strokeDashoffset = CIRC * (1 - k);
+    r.classList.toggle('rdy', g.left === 0); r.lastChild.textContent = g.left === 0 ? g.n : g.left.toFixed(1); if (g.left === 0) ready++; });
+  $('lnC').style.width = (ready / GEAR.length * 100) + '%';
+  // context progress (loops after a short hold at 100%)
+  if (DUR[S.mode]){ S.prog += dt / DUR[S.mode]; if (S.prog > 1.6) S.prog = 0; }
+  hexT += dt;
+  if (hexT > 0.08){ hexT = 0; $('ctx').innerHTML = CTX[S.mode](Math.min(1, S.prog)); }
+  const s = Math.floor((now - S.t0) / 1000); $('clock').textContent = `T+${String(s/60|0).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`;
+  requestAnimationFrame(frame);
+}
+renderStatic(); setMode('aim'); requestAnimationFrame(frame);
+</script>
