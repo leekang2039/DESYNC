@@ -1,0 +1,95 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Heart Tag Cartridges</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600&family=Share+Tech+Mono&display=swap">
+<style>
+/* v5 (built from src/hearttag_v5.js — three.js is inlined, no CDN needed) */
+:root{
+  --bg:#05080b; --panel:#0b1015; --line:#18222b; --fg:#c9d3dd; --muted:#7d8a97; --head:#eef6f4; --holo:#78ECD6;
+  --f-display:'Chakra Petch',system-ui,sans-serif; --f-mono:'Share Tech Mono',ui-monospace,monospace;
+  color-scheme:dark;
+}
+html,body{height:100%}
+body{background:var(--bg);color:var(--fg);font-family:var(--f-display);margin:0}
+.wrap{display:flex;flex-wrap:wrap;min-height:100%;box-sizing:border-box}
+.stage{flex:999 1 560px;min-width:0;position:relative;min-height:62vh;background:#05080b}
+#c{position:absolute;inset:0;width:100%;height:100%;display:block;cursor:crosshair;touch-action:none}
+.tag{position:absolute;left:16px;top:14px;font:400 11px var(--f-mono);letter-spacing:.14em;color:var(--muted);pointer-events:none}
+#fallback{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:24px;text-align:center;color:var(--fg);font-size:14px}
+.xh{position:absolute;left:50%;top:50%;width:18px;height:18px;margin:-9px 0 0 -9px;pointer-events:none;transition:transform .15s,opacity .15s}
+.xh::before,.xh::after{content:"";position:absolute;background:rgba(184,255,240,.8)}
+.xh::before{left:8px;top:0;width:2px;height:18px;clip-path:polygon(0 0,100% 0,100% 30%,0 30%,0 70%,100% 70%,100% 100%,0 100%)}
+.xh::after{top:8px;left:0;height:2px;width:18px;clip-path:polygon(0 0,30% 0,30% 100%,0 100%,0 0,70% 0,100% 0,100% 100%,70% 100%)}
+.xh.ads{transform:scale(.55);opacity:.7}
+.rail{flex:1 1 300px;box-sizing:border-box;padding:24px 16px 28px;display:flex;flex-direction:column;gap:18px;border-left:1px solid var(--line);background:var(--panel)}
+h1{margin:0;font-size:24px;font-weight:600;color:var(--head);text-wrap:balance}
+p{margin:0;font-size:13px;line-height:1.6;color:#9aa6b2;max-width:46ch}
+.lab{font:400 11px var(--f-mono);letter-spacing:.14em;color:var(--muted);text-transform:uppercase}
+.row{display:flex;flex-wrap:wrap;gap:8px}
+button{appearance:none;border:1px solid #24313a;background:#0e151b;color:var(--fg);font:500 13px var(--f-display);padding:0 14px;height:44px;min-width:44px;cursor:pointer}
+button:hover{border-color:var(--holo);color:#fff}
+button:focus-visible{outline:2px solid var(--holo);outline-offset:2px}
+button[aria-pressed="true"]{border-color:var(--holo);color:var(--holo)}
+kbd{font:400 11px var(--f-mono);color:var(--muted);margin-left:6px}
+.seq{display:grid;grid-template-columns:auto 1fr;gap:6px 12px;font-size:12.5px}
+.seq span:nth-child(odd){font-family:var(--f-mono);color:var(--holo);white-space:nowrap}
+#err{color:#ff8a80;font-size:12px}
+/* phones: the 3D view fills the screen with a touch dock on it; the notes scroll below */
+.dock{position:absolute;left:0;right:0;bottom:0;display:none;gap:6px;padding:16px 12px calc(10px + env(safe-area-inset-bottom));overflow-x:auto;background:linear-gradient(transparent,rgba(5,8,11,.88))}
+.dock button{flex:0 0 auto;min-width:56px;background:rgba(14,21,27,.82)}
+@media (max-width: 899px){ .stage{flex-basis:100%;height:100svh;min-height:0} .dock{display:flex} .tag{top:max(14px,env(safe-area-inset-top))} }
+@media (min-width: 900px){ .wrap{height:100vh;flex-wrap:nowrap} .stage{min-height:0} .rail{overflow-y:auto;max-width:380px} }
+#ht{position:absolute;left:12px;bottom:12px;width:220px;height:220px;cursor:pointer;touch-action:none}
+#flash{position:absolute;inset:0;background:#fff3e0;opacity:0;pointer-events:none}
+@media (max-width: 899px){ #ht{width:150px;height:150px;bottom:86px;left:8px} }
+</style>
+<div class="wrap">
+  <div class="stage">
+    <canvas id="c" aria-label="1인칭 Heart Tag 프로토타입"></canvas>
+    <canvas id="ht" aria-label="Heart Tag 카트리지 슬롯 (누르면 교체)"></canvas>
+    <div id="flash"></div>
+    <div class="tag" id="state">WALK</div>
+    <div id="fallback" hidden></div>
+    <div class="dock" aria-label="터치 조작">
+      <button data-a="walk" aria-pressed="true">이동</button>
+      <button data-a="desync">DESYNC 키</button>
+      <button data-a="aim">조준</button>
+      <button data-a="reset">기록 초기화</button>
+    </div>
+  </div>
+  <aside class="rail">
+    <h1>Heart Tag 카트리지</h1>
+    <p>팔찌 없이 어깨의 Heart Tag 하나로 갑니다. 카트리지 세 개를 꽂고 걸어가면, 가까워진 문·단말·물체를 Heart Tag가 알아서 해독하고 패턴을 어깨 너머로 투사해요. 누를 것이 없어서 반복도 없고, 그냥 보는 즐거움만 남겨요.</p>
+    <p style="font-size:12px">이동 = W/스페이스 · 카트리지 교체 = 1/2/3 또는 왼쪽 아래 Heart Tag의 칸 누르기 · 복도 끝 DESYNC 문에서 X · 우클릭 조준.</p>
+
+    <div class="lab">조작</div>
+    <div class="row">
+      <button data-a="walk" aria-pressed="true">이동<kbd>W</kbd></button>
+      <button data-a="desync">DESYNC 키<kbd>X</kbd></button>
+      <button data-a="reset">해독 기록 초기화</button>
+    </div>
+
+    <div class="lab">카트리지 슬롯 (누르면 교체)</div>
+    <div class="row" id="slots"></div>
+
+    <div class="lab">자동으로 일어나는 일</div>
+    <div class="seq">
+      <span>PULSE</span><span>물체 근처: 눈금 휠 패턴이 돌다 멈추며 식별 → 물체에 윤곽선</span>
+      <span>DECODER</span><span>문 근처: 텀블러 트랙 4줄이 창에 맞물리며 문이 열림 · 단말 근처: 암호 트랙 3줄 → 화면 점등</span>
+      <span>ANCHOR</span><span>복도 끝 DESYNC 문에서 X: 좌표 고리 두 개가 반대로 돌다 맞물리고 접혀 들어가며 문이 열려 다른 공간으로</span>
+      <span>이미 해독</span><span>고리 하나가 창을 스쳐 지나가는 0.5초 표시만</span>
+      <span>카트리지 없음</span><span>패턴이 더듬다 꺼짐 (문은 잠긴 채)</span>
+    </div>
+    <div class="lab">투사</div>
+    <div class="seq">
+      <span>위치</span><span>왼쪽 어깨(화면 밖 아래)에서 레이저 4줄 → 원형 패턴이 펼쳐짐 (지도와 같은 문법)</span>
+      <span>모양</span><span>Heart Tag가 둥근 장치라 패턴도 고리형 · 창은 위쪽 · 가운데는 느리게 도는 코어 베젤</span>
+    </div>
+    <div id="err" role="status"></div>
+  </aside>
+</div>
+<script>
+/*BUNDLE*/
+</script>
