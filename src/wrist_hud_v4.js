@@ -116,14 +116,18 @@ const armorM2 = new THREE.MeshPhysicalMaterial({color: 0xaeb4ba, roughness: .48,
 const LED_RED = new THREE.Color(0xff2030), LED_CY = new THREE.Color(HOLO);
 const ledM = new THREE.MeshStandardMaterial({color: 0x10080a, emissive: LED_RED.clone(), emissiveIntensity: 1.5});
 const brassM = M(0xc08a42, .35, .85);
+const LEDS = [];                                    // seam LEDs keep their own material so light can chase round the cuff
 for (let i=0;i<NS;i++){ const pv = new THREE.Group(); pv.rotation.z = i/NS*Math.PI*2; cuff.add(pv);
   if (i % 3 === 1){ [-1, 1].forEach(s => { const p = new THREE.Mesh(new THREE.BoxGeometry(sw*0.8, 0.008, CL*0.46), s > 0 ? armorM : armorM2); p.position.set(0, CR + 0.002, s*CL*0.26); pv.add(p); }); }
   else { const p = new THREE.Mesh(new THREE.BoxGeometry(sw*0.8, 0.008 + (i%2)*0.002, CL*0.96), armorM); p.position.y = CR + 0.002; pv.add(p); }
   const lv = new THREE.Group(); lv.rotation.z = Math.PI/NS; pv.add(lv);
-  const led = new THREE.Mesh(new THREE.BoxGeometry(0.0016, 0.004, CL*0.86), ledM); led.position.y = CR; lv.add(led);
+  const lm = ledM.clone(); LEDS.push({m: lm, a: (i + 0.5)/NS}); const led = new THREE.Mesh(new THREE.BoxGeometry(0.0016, 0.004, CL*0.86), lm); led.position.y = CR; lv.add(led);
   if (i % 4 === 0){ const b = new THREE.Mesh(new THREE.BoxGeometry(0.004, 0.006, 0.006), brassM); b.position.set(0, CR + 0.003, CL*0.42); lv.add(b); }
   if (i % 5 === 2){ const sq = new THREE.Mesh(new THREE.BoxGeometry(0.004, 0.0015, 0.007), ledM); sq.position.set(0, CR + 0.0065, -CL*0.1); pv.add(sq); } }
 [-1, 1].forEach(s => { const r = new THREE.Mesh(new THREE.TorusGeometry(CR + 0.001, 0.0022, 8, 64), M(0x15181c, .5, .6)); r.position.z = s*CL/2; cuff.add(r); });
+// quick-action pulse: a thin light ring that leaves the cuff (seen from behind / when the arm is in view)
+const pulseRing = new THREE.Mesh(new THREE.TorusGeometry(CR + 0.004, 0.0012, 6, 96), new THREE.MeshBasicMaterial({color: HOLO, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false}));
+cuff.add(pulseRing);
 
 // ---------------- wrist display: one camera-facing canvas centred on the cuff ----------------
 // Both the aim HUD and the door / hack / scan read-outs are drawn here, so everything comes off the bracelet.
@@ -150,7 +154,7 @@ const S = {aim: false, ammo: 24, max: 30, mags: 3, type: 0, reload: 0, dAmmo: 2,
 const TYPES = ['STD', 'AP', 'EMP'];
 const GEAR = [{cd: 8, left: 0, ready: 0}, {cd: 5, left: 0, ready: 0}, {cd: 14, left: 0, ready: 0}];
 const ACT = {kind: '', t: 0, cached: false};                       // active bracelet action: 'door' | 'hack' | 'scan'
-const ACT_LEN = {door: 2.6, hack: 3.4, scan: 3.6}, ACT_LEN_CACHED = {door: 0.9, hack: 0.9, scan: 0.9};
+const ACT_LEN = {door: 2.6, hack: 3.4, scan: 3.6}, ACT_LEN_CACHED = {door: 0.6, hack: 0.6, scan: 0.6};
 const KNOWN = new Set();                            // targets decoded once: later uses only confirm the cached key
 let hudK = 0, aimK = 0, actK = 0, doorOpen = 0, doorHold = 0, hackLit = 0;
 
@@ -233,16 +237,15 @@ function drawDecode(dec, x, y, size, al=1){
     [[x - 6, y - h, 1, 1], [x + w + 4, y - h, -1, 1], [x - 6, y + h, 1, -1], [x + w + 4, y + h, -1, -1]].forEach(([bx, by, sx, sy]) => {
       g.beginPath(); g.moveTo(bx, by + sy*8); g.lineTo(bx, by); g.lineTo(bx + sx*8, by); g.stroke(); }); } }
 
-// ---- aim HUD: the fixed frame is the art — the bracelet's own chamfered armour plates, redrawn as a hologram,
-//      deploy off the cuff one by one and lock into an arc; light inside them is the magazine, the keystone plate holds the count.
-const PLATES = [ {a0: 70, a1: 59, r0: 180, r1: 206}, {a0: 57, a1: 44, r0: 180, r1: 212}, {a0: 42, a1: 30, r0: 180, r1: 209},
-                 {a0: 28, a1: 17, r0: 180, r1: 204}, {a0: 14, a1: -19, r0: 176, r1: 300, key: true} ];
-const AMMO_A0 = 70, AMMO_A1 = 17;
+// ---- aim HUD: analysis tone, kept minimal — one precise arc for the magazine, and a bracketed read-out
+//      led off its end, set like the CORE ANALYSIS panel (spaced caps, a rule, one big figure, quiet data rows).
+const A0 = 64, A1 = 6, R_A = 200;
 const PEEK = {drone: 0, mark: 0};
 const AIMD = {t0: 0, rl: false, pulse: -9};
-const countDec = new Decoder('24', {base: 0.04, span: 0.22}), magDec = new Decoder('×3', {base: 0.06, span: 0.25});
+const countDec = new Decoder('24', {base: 0.04, span: 0.22}), magDec = new Decoder('3', {base: 0.06, span: 0.25});
 const droneDec = new Decoder(''), gearDec = new Decoder(''), markDec = new Decoder('');
 const roll = new Spring(240, 19);                    // round-type roller: turns forward, overshoots into place
+let portraitUI = false;
 function aimIn(){ AIMD.t0 = T; countDec.scramble(); magDec.scramble(); }
 function drawRoller(x, y, size, al){ const n = TYPES.length, p = roll.pos, moving = roll.moving;
   for (let k=Math.floor(p) - 1; k<=Math.floor(p) + 2; k++){ const d = k - p, ang = d*Math.PI/3, cs = Math.cos(ang);
@@ -250,57 +253,52 @@ function drawRoller(x, y, size, al){ const n = TYPES.length, p = roll.pos, movin
     g.save(); g.translate(x, y + Math.sin(ang)*size*1.25); g.scale(1, cs); g.globalAlpha = al*cs;
     spaced(3); text(TYPES[((k % n) + n) % n], 0, 0, size, Math.abs(d) < 0.5 ? W(1) : E(0.7), 'left', Math.abs(d) < 0.5); spaced(0); g.restore(); }
   g.globalAlpha = 1; }
-function ctxLine(dec, str, show, a, al){ if (!show){ dec.cur = dec.prev = ''; return; } dec.set(str); const [x, y] = P(216, a);
-  g.globalAlpha = al; drawDecode(dec, x, y, 15, al); g.globalAlpha = 1; }
-function platePath(p, dr=0, da=0, inset=0){   // inner edge follows the cuff, outer corners chamfered like the bracelet's armour
-  const r0 = p.r0 + dr + inset, r1 = p.r1 + dr - inset, a0 = p.a0 + da - inset*0.12, a1 = p.a1 + da + inset*0.12, cut = p.key ? 18 : 7, cd = cut/r1/D2R;
-  g.beginPath(); g.moveTo(...P(r0, a0)); g.arc(C, C, r0, -a0*D2R, -a1*D2R, false);
-  g.lineTo(...P(r1 - cut, a1)); g.lineTo(...P(r1, a1 + cd)); g.arc(C, C, r1, -(a1 + cd)*D2R, -(a0 - cd)*D2R, true); g.lineTo(...P(r1 - cut, a0)); g.closePath(); }
+function corners(x, y, w, h, s, col){ g.strokeStyle = col; g.lineWidth = 1.5;
+  [[x, y, 1, 1], [x + w, y, -1, 1], [x, y + h, 1, -1], [x + w, y + h, -1, -1]].forEach(([cx, cy, sx, sy]) => { g.beginPath(); g.moveTo(cx, cy + sy*s); g.lineTo(cx, cy); g.lineTo(cx + sx*s, cy); g.stroke(); }); }
+function label(s, x, y, al=1, size=12){ spaced(4); text(s, x, y, size, E(0.62*al)); spaced(0); }
 function drawAim(T){
   if (hudK <= 0) return;
-  const rl = S.reload > 0;
+  const kA = ease(clamp(hudK/0.5)), kT = ease(clamp((hudK - 0.25)/0.5)), rl = S.reload > 0;
   if (rl) AIMD.rl = true; else if (AIMD.rl){ AIMD.rl = false; countDec.scramble(); }
-  const low = S.ammo <= 10 && !rl, pulse = low ? 0.55 + 0.45*Math.sin(T*9) : 1, shot = clamp(1 - (T - AIMD.pulse)/0.18);
-  const frac = rl ? clamp(1 - S.reload/1.4) : S.ammo/S.max, aLit = lerp(AMMO_A0, AMMO_A1, frac);
-  const dep = PLATES.map((p, i) => ease(clamp((hudK*1.7 - i*0.16)/0.5)));      // deploy: each plate slides out of the cuff and locks
-  // light inside the plates = what is left in the magazine (one continuous glow, no per-round marks)
-  if (dep[3] > 0.01){ g.save();
-    g.beginPath(); PLATES.slice(0, 4).forEach((p, i) => { const dr = -(1 - dep[i])*26, da = (1 - dep[i])*5, r0 = p.r0 + dr + 3, r1 = p.r1 + dr - 3, cut = 7, cd = cut/r1/D2R, a0 = p.a0 + da - 0.36, a1 = p.a1 + da + 0.36;
-      g.moveTo(...P(r0, a0)); g.arc(C, C, r0, -a0*D2R, -a1*D2R, false); g.lineTo(...P(r1 - cut, a1)); g.lineTo(...P(r1, a1 + cd)); g.arc(C, C, r1, -(a1 + cd)*D2R, -(a0 - cd)*D2R, true); g.lineTo(...P(r1 - cut, a0)); g.closePath(); });
-    g.clip();
-    const gr = g.createRadialGradient(C, C, 180, C, C, 212); gr.addColorStop(0, E(0.7*pulse)); gr.addColorStop(1, H(0.2*pulse));
-    g.fillStyle = gr; g.beginPath(); g.moveTo(C, C); g.arc(C, C, 220, -AMMO_A0*D2R, -aLit*D2R, false); g.closePath(); g.fill();
-    if (frac > 0){ g.strokeStyle = W(0.9*pulse); g.lineWidth = 2; g.beginPath(); g.moveTo(...P(180, aLit)); g.lineTo(...P(214, aLit)); g.stroke(); }   // light front
-    g.restore(); }
-  // the plates: bright outline, faint inset line, a notch on the outer edge, rivets at the inner corners
-  PLATES.forEach((p, i) => { const k = dep[i]; if (k <= 0.01) return; const dr = -(1 - k)*26, da = (1 - k)*5;
-    g.globalAlpha = k;
-    const hot = p.key ? shot : 0;
-    platePath(p, dr, da); g.strokeStyle = hot > 0 ? W(0.6 + 0.4*hot) : E(0.9*(p.key ? 1 : pulse)); g.lineWidth = p.key ? 1.6 : 1.4; g.stroke();
-    platePath(p, dr, da, 4); g.strokeStyle = H(0.28); g.lineWidth = 1; g.stroke();
-    if (p.key){ platePath(p, dr, da, 1); g.fillStyle = H(0.05 + 0.12*hot); g.fill(); }
-    const am = (p.a0 + p.a1)/2 + da; tick(p.r1 + dr - 4, am, 8, 1.5, E(0.8));
-    dot(p.r0 + dr + 6, p.a0 + da - 1.5, 1.8, true, E(0.9)); dot(p.r0 + dr + 6, p.a1 + da + 1.5, 1.8, true, E(0.9)); });
-  g.globalAlpha = 1;
-  const kK = dep[4]; if (kK < 0.3) return;
-  const al = ease(clamp((kK - 0.3)/0.7));
-  // keystone contents: a small label, the hologram count, spare mags, the round-type roller
-  g.globalAlpha = al; { const [x, y] = P(282, 10); spaced(3); text('RND', x, y, 11, E(0.6)); spaced(0); }
-  countDec.set(rl ? '--' : String(S.ammo).padStart(2, '0')); magDec.set('×' + S.mags);
-  const [x, y] = P(206, -1), jit = S.recoil*3;
-  g.save(); g.globalAlpha = al*0.35; drawDecode(countDec, x + 3 + jit, y + 6, 58, 0.35); g.restore();
-  g.globalAlpha = al; drawDecode(countDec, x - jit*0.5, y + 4, 58, al*(low ? pulse : 1));
-  g.globalCompositeOperation = 'destination-out'; g.fillStyle = 'rgba(0,0,0,0.5)';
-  for (let sy = y - 26 + (T*40 % 4); sy < y + 34; sy += 4) g.fillRect(x - 6, sy, 80, 1);
-  g.globalCompositeOperation = 'source-over';
-  g.globalAlpha = al; drawDecode(magDec, x + 76, y - 18, 18, al);
+  const low = S.ammo <= 10 && !rl, pulse = low ? 0.55 + 0.45*Math.sin(T*9) : 1, shot = clamp(1 - (T - AIMD.pulse)/0.2);
+  const open = lerp(A0, A1, kA), frac = rl ? clamp(1 - S.reload/1.4) : S.ammo/S.max, aAm = lerp(A0, A1, frac), lit = Math.max(open, aAm);
+  // the arc: spent part a faint hairline, the magazine a 2px line with a soft halo; tenths ticked inside; capped at both ends
+  arc(R_A, A0, open, 1, H(0.3));
+  if (frac > 0){ arc(R_A, A0, lit, 7, H(0.07*pulse)); arc(R_A, A0, lit, 2, E(0.95*pulse)); }
+  for (let k=0;k<=10;k++){ const a = lerp(A0, A1, k/10); if (a < open - 0.01) break; tick(R_A - 7, a, k % 5 ? 3 : 7, 1, H(k % 5 ? 0.35 : 0.7)); }
+  tick(R_A, A0, 14, 1.5, E(0.9));
+  if (kA > 0.98){ tick(R_A, A1, 14, 1.5, E(0.9)); if (frac > 0) tick(R_A, aAm, 12 + shot*8, 2, W(0.7 + 0.3*shot)); }
+  if (kT <= 0) return;
+  g.globalAlpha = kT; { const [x, y] = P(R_A + 12, A0 + 2); label('AMMO', x, y, kT, 11); }
+  // read-out block, led off the arc's end (above the arc start on portrait screens)
+  const bw = 168, bh = 96;
+  const [ax, ay] = portraitUI ? P(R_A + 6, A0) : P(R_A + 6, A1);
+  const bx = portraitUI ? ax - 30 : ax + 30, by = portraitUI ? ay - bh - 34 : ay - bh/2 - 6;
+  const draw = ease(clamp((hudK - 0.3)/0.4));
+  g.strokeStyle = E(0.55); g.lineWidth = 1; g.beginPath(); g.moveTo(ax, ay);
+  if (portraitUI){ g.lineTo(ax, by + bh + 14); g.lineTo(bx + 18, by + bh + 14); } else { g.lineTo(bx - 12, ay); g.lineTo(bx - 12, by + bh*0.62); g.lineTo(bx - 4, by + bh*0.62); }
+  g.stroke(); dot(R_A + 6, portraitUI ? A0 : A1, 2.4, true, W(1));
+  corners(bx, by, bw*draw, bh, 10, E(0.85));
+  // header: label + rule + round type (roller)
+  label('RND', bx + 10, by + 15, kT); g.fillStyle = H(0.35); g.fillRect(bx + 10, by + 26, (bw - 20)*draw, 1);
   roll.target = (() => { let t = S.type + TYPES.length*Math.floor(roll.target/TYPES.length); while (t < roll.target - 1e-6) t += TYPES.length; return t; })();
-  drawRoller(x + 4, y + 44, 20, al);
-  // contextual lines decode in beside the plates only while they matter
+  drawRoller(bx + bw - 44, by + 15, 13, kT);
+  // the figure: count (decoded where it changes) over the magazine size
+  countDec.set(rl ? '--' : String(S.ammo).padStart(2, '0'));
+  g.globalAlpha = kT; drawDecode(countDec, bx + 8 - S.recoil*2, by + 58, 50, kT*(low ? pulse : 1));
+  g.globalAlpha = kT; text('/' + S.max, bx + 72, by + 66, 16, H(0.6));
+  // data row: spare mags
+  magDec.set(String(S.mags)); label('MAG', bx + 112, by + 52, kT, 11); drawDecode(magDec, bx + 146, by + 52, 16, kT);
+  g.fillStyle = H(0.25); g.fillRect(bx + 10, by + bh - 12, (bw - 20)*draw, 1);
+  // contextual rows stack under the block only while they matter (decode in, then fade)
+  const rows = [];
+  if (PEEK.drone > 0 || S.batt <= 20) rows.push([droneDec, 'P-07', 'BATT ' + Math.round(S.batt) + '  RD ' + S.dAmmo, Math.max(clamp(PEEK.drone/0.4), S.batt <= 20 ? 1 : 0)]); else droneDec.cur = droneDec.prev = '';
   const cool = GEAR.map((G, i) => G.left > 0 ? ['GRP', 'TAG', 'SHD'][i] + ' ' + Math.ceil(G.left) + 's' : '').filter(Boolean).join('  ');
-  ctxLine(droneDec, 'P-07 ' + Math.round(S.batt) + '%  RD ' + S.dAmmo, PEEK.drone > 0 || S.batt <= 20, 66, al*Math.max(clamp(PEEK.drone/0.4), S.batt <= 20 ? 1 : 0));
-  ctxLine(gearDec, cool, !!cool, 53, al);
-  ctxLine(markDec, 'MARK ' + S.mark + '/3', PEEK.mark > 0, 40, al*clamp(PEEK.mark/0.4)); }
+  if (cool) rows.push([gearDec, 'GEAR', cool, 1]); else gearDec.cur = gearDec.prev = '';
+  if (PEEK.mark > 0) rows.push([markDec, 'MARK', S.mark + '/3', clamp(PEEK.mark/0.4)]); else markDec.cur = markDec.prev = '';
+  rows.forEach(([dec, l, v, a], i) => { const ry = by + bh + 8 + i*20; dec.set(v); g.globalAlpha = kT*a;
+    label(l, bx + 10, ry, kT*a, 11); drawDecode(dec, bx + 56, ry, 14, kT*a); });
+  g.globalAlpha = 1; }
 
 // ---- bracelet actions: tracks freezing into a window on a short arc over the outer side of the wrist ----
 const HEX = '0123456789ABCDEF';
@@ -346,15 +344,8 @@ function drawScanFull(t){ const p = clamp(t/2.0), k = ease(clamp((t - 2.0)/0.4))
       for (let b=0;b<10;b++){ g.fillStyle = b < Math.round(v*10*k) ? E(1) : H(0.18); g.fillRect(x + 70 + b*13, yy - 3, 10, 5); } }); }
   g.globalAlpha = 1; }
 
-// already-decoded targets: the key is cached, so the bracelet only confirms it — same tracks, already locked
-function drawCached(t, label, word, sub, R){ const fade = clamp(t/0.08)*(1 - clamp((t - 0.6)/0.3)), sw = clamp(t/0.3);
-  g.globalAlpha = fade;
-  R.forEach((r, i) => { cipher(r, t, 0, i, true, 5); });
-  arc(R[R.length - 1] + 14, lerp(B0, B1, Math.max(0, sw - 0.15)), lerp(B0, B1, sw), 3, W(0.9*(1 - sw)));      // one quick read sweep
-  windowMarks(BM, 6, R[0] - 10, R[R.length - 1] + 10); statLabel(label); statBig(word); statSub(sub); g.globalAlpha = 1; }
-const drawDoor = t => ACT.cached ? drawCached(t, 'DOOR B-12', 'OPEN', 'CACHED KEY', [184, 200, 216, 232]) : drawDoorFull(t);
-const drawHack = t => ACT.cached ? drawCached(t, 'NODE 04', 'ACCESS', 'CACHED SIGNATURE', [186, 204, 222]) : drawHackFull(t);
-const drawScan = t => ACT.cached ? drawCached(t, 'IDENTIFIED', 'OBJECT 03', '위상 결정 파편 · KNOWN', [190, 210]) : drawScanFull(t);
+// already-decoded targets skip the read-out entirely (see the LED chase / pulse ring in the loop)
+const drawDoor = drawDoorFull, drawHack = drawHackFull, drawScan = drawScanFull;
 function drawMini(al){ const len = (ACT.cached ? ACT_LEN_CACHED : ACT_LEN)[ACT.kind], p = clamp(ACT.t/(len*0.75)), fade = 1 - clamp((ACT.t - len + 0.3)/0.3);
   g.globalAlpha = al*fade; const [x, y] = P(212, 79);
   spaced(3); text({door: 'DOOR', hack: 'NODE', scan: 'SCAN'}[ACT.kind], x, y, 12, E(0.7)); spaced(0);
@@ -426,10 +417,10 @@ function frame(now){
   look.x = lerp(look.x, look.tx, 1 - Math.exp(-dt*4)); look.y = lerp(look.y, look.ty, 1 - Math.exp(-dt*4));
   camera.rotation.set(-look.y*0.1, -look.x*0.16, 0, 'YXZ');
   aimK = lerp(aimK, S.aim ? 1 : 0, 1 - Math.exp(-dt*14));
-  actK = lerp(actK, ACT.kind ? 1 : 0, 1 - Math.exp(-dt*(ACT.kind ? 9 : 6)));
+  actK = lerp(actK, ACT.kind && !ACT.cached ? 1 : 0, 1 - Math.exp(-dt*(ACT.kind ? 9 : 6)));
   hudK = clamp(hudK + (S.aim ? dt/0.4 : -dt/0.16));
   const portrait = camera.aspect < 1, nar = portrait ? 0.18 : clamp(camera.aspect/1.6, 0.42, 1);   // phones: wider view, arm pulled in so cuff + arcs stay on screen
-  const fov0 = portrait ? 66 : 55; camera.fov = lerp(fov0, fov0 - 8, aimK); camera.updateProjectionMatrix();
+  portraitUI = portrait; const fov0 = portrait ? 66 : 55; camera.fov = lerp(fov0, fov0 - 8, aimK); camera.updateProjectionMatrix();
   _p.lerpVectors(POSE.hip.p, POSE.ads.p, aimK).lerp(POSE.wrist.p, actK*0.45*(1 - aimK));
   _q[0].setFromEuler(POSE.hip.r); _q[1].setFromEuler(POSE.ads.r); _q[2].setFromEuler(POSE.wrist.r);
   _qa.slerpQuaternions(_q[0], _q[1], aimK).slerp(_q[2], actK*0.45*(1 - aimK));   // a small wrist turn, none while aiming: the hands stay on the gun
@@ -446,7 +437,14 @@ function frame(now){
 
   // bracelet seams: red at rest, cyan while it projects
   const proj = Math.max(actK, hudK*0.35);
-  ledM.emissive.copy(LED_RED).lerp(LED_CY, actK); ledM.emissiveIntensity = 1.5 - actK*0.5 + (ACT.kind ? Math.sin(T*18)*0.15 : 0);
+  // repeat actions show only here: seams flash cyan with a light chasing round the cuff, and a ring pulses off it
+  const quick = ACT.kind && ACT.cached, qt = quick ? ACT.t : 0, qk = quick ? clamp(qt/0.06)*(1 - clamp((qt - 0.32)/0.25)) : 0;
+  const cyan = Math.max(actK, qk);
+  ledM.emissive.copy(LED_RED).lerp(LED_CY, cyan); ledM.emissiveIntensity = 1.5 - cyan*0.5;
+  LEDS.forEach(L => { L.m.emissive.copy(LED_RED).lerp(LED_CY, cyan); let I = 1.5 - cyan*0.5;
+    if (quick && qt < 0.42){ const ph = ((qt*2.6 - L.a) % 1 + 1) % 1; const dd = Math.min(ph, 1 - ph); I += Math.exp(-dd*dd*90)*3.2; }
+    else if (ACT.kind) I += Math.sin(T*18)*0.15; L.m.emissiveIntensity = I; });
+  const pk = quick ? clamp((qt - 0.05)/0.45) : 1; pulseRing.scale.setScalar(1 + ease(pk)*0.9); pulseRing.material.opacity = quick ? (1 - pk)*0.9 : 0;
   cuff.getWorldPosition(_v); camera.worldToLocal(_u.copy(_v)); cuffGlow.position.copy(_u).add(new THREE.Vector3(0.03, 0.03, 0.02)); cuffGlow.intensity = proj*0.12;
 
   // ---- wrist display ----
@@ -454,21 +452,21 @@ function frame(now){
   if (hudK > 0.001) drawAim(T);
   if (ACT.kind){   // the action keeps running while aiming; its full read-out folds into one line above the plates
     gAct.clearRect(0, 0, N, N); g = gAct;
-    if (ACT.kind === 'door') drawDoor(ACT.t); else if (ACT.kind === 'hack') drawHack(ACT.t); else drawScan(ACT.t);
-    g = gMain; const full = 1 - aimK; if (full > 0.02){ g.globalAlpha = full; g.drawImage(ac, 0, 0); g.globalAlpha = 1; }
-    if (aimK > 0.02) drawMini(aimK); }
+    if (!ACT.cached){ if (ACT.kind === 'door') drawDoor(ACT.t); else if (ACT.kind === 'hack') drawHack(ACT.t); else drawScan(ACT.t); }   // repeats: no read-out at all
+    g = gMain; const full = 1 - aimK; if (full > 0.02 && !ACT.cached){ g.globalAlpha = full; g.drawImage(ac, 0, 0); g.globalAlpha = 1; }
+    if (aimK > 0.02 && !ACT.cached) drawMini(aimK); }
   wTex.needsUpdate = true; wrist.visible = hudK > 0.001 || !!ACT.kind;
 
   // ---- world side of each action (the bracelet's beam / cone, and the result) ----
   const t = ACT.t; let rayOp = 0;
-  if (ACT.kind === 'door'){ doorAnchor.getWorldPosition(_w); seg(ray, 0, _v, _w); const tOpen = ACT.cached ? 0.25 : 0.95; rayOp = clamp(t/0.15)*(1 - clamp((t - tOpen)/0.2))*(0.6 + Math.random()*0.4); if (t > tOpen) doorHold = 4; }   // the door opens the moment the pins set
-  if (ACT.kind === 'hack'){ termAnchor.getWorldPosition(_w); seg(ray, 0, _v, _w); const tAcc = ACT.cached ? 0.3 : 2.45; rayOp = clamp(t/0.15)*(1 - clamp((t - tAcc)/0.2))*(0.5 + Math.random()*0.5);
+  if (ACT.kind === 'door'){ doorAnchor.getWorldPosition(_w); seg(ray, 0, _v, _w); const tOpen = ACT.cached ? 0.15 : 0.95; rayOp = clamp(t/0.15)*(1 - clamp((t - tOpen)/0.2))*(0.6 + Math.random()*0.4); if (t > tOpen) doorHold = 4; }   // the door opens the moment the pins set
+  if (ACT.kind === 'hack'){ termAnchor.getWorldPosition(_w); seg(ray, 0, _v, _w); const tAcc = ACT.cached ? 0.2 : 2.45; rayOp = clamp(t/0.15)*(1 - clamp((t - tAcc)/0.2))*(0.5 + Math.random()*0.5);
     tScreenM.color.setHex(t > tAcc ? 0x5fd6c2 : (Math.floor(t*14) % 2 ? 0x2a6c62 : 0x173c37)); if (t > tAcc) hackLit = 4; }
   ray.material.opacity = rayOp;
   doorHold = Math.max(0, doorHold - dt); doorOpen = lerp(doorOpen, doorHold > 0 ? 1 : 0, 1 - Math.exp(-dt*5));
   leafL.position.x = -0.35 - doorOpen*0.66; leafR.position.x = 0.35 + doorOpen*0.66; doorLockM.color.setHex(doorHold > 0 ? 0x2e8f80 : 0x3a1418);
   hackLit = Math.max(0, hackLit - dt); if (!ACT.kind || ACT.kind !== 'hack') tScreenM.color.setHex(hackLit > 0 ? 0x5fd6c2 : 0x1d4a44);
-  const tScan = ACT.cached ? 0.3 : 2.0, scanning = ACT.kind === 'scan' && t < tScan + 0.05;
+  const tScan = ACT.cached ? 0.25 : 2.0, scanning = ACT.kind === 'scan' && t < tScan + 0.05;
   if (ACT.kind === 'scan'){ const sh = 0.78 + clamp(t/tScan)*0.62, rr = 0.3*(1 - 0.5*clamp((sh - 0.9)/0.5));
     scanRing.position.y = sh; scanRing.scale.setScalar(rr/0.3);
     for (let i=0;i<8;i++){ const a = i/8*Math.PI*2 + t*2; seg(cone, i, _v, _w.set(relic.position.x + Math.cos(a)*rr, sh, relic.position.z + Math.sin(a)*rr)); }
