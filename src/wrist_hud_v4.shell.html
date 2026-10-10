@@ -60,7 +60,7 @@ kbd{font:400 11px var(--f-mono);color:var(--muted);margin-left:6px}
   </div>
   <aside class="rail">
     <h1>팔찌 아크 HUD</h1>
-    <p>조준하면 손목 오른쪽 위에 얇은 호 한 줄과 잔탄 숫자만 떠요. 드론·기어·마킹 정보는 바뀔 때만 잠깐 나타나요. 문 열기·해킹·스캔 키를 누르면 손목이 올라오고 팔찌 이음새가 하늘색으로 바뀌면서, 팔찌 둘레에 동작별 링 UI와 빔/스캔 이펙트가 나옵니다.</p>
+    <p>조준하면 손목 오른쪽 위에 굵은 호 한 줄, 잔탄 숫자, 탄종 칩만 떠요. 드론·기어·마킹 정보는 바뀔 때만 잠깐 나타나요. 문 열기·해킹·스캔 키를 누르면 손목이 올라오고 팔찌 이음새가 하늘색으로 바뀌면서, 손목 바깥쪽 반원에 동작별 UI가 펼쳐지고 빔/스캔 이펙트가 나옵니다.</p>
     <p style="font-size:12px">화면 우클릭 유지 = 조준, 조준 중 좌클릭 = 사격, 마우스 이동 = 시선.</p>
 
     <div class="lab">전투</div>
@@ -87,17 +87,17 @@ kbd{font:400 11px var(--f-mono);color:var(--muted);margin-left:6px}
 
     <div class="lab">조준 HUD</div>
     <div class="seq">
-      <span>호</span><span>남은 탄만큼 밝은 선 · 끝 눈금 = 다음 탄 · 10발 이하 깜빡임</span>
-      <span>24 ×3</span><span>잔탄 · 예비 탄창 (AP/EMP일 때만 탄종 표시)</span>
+      <span>호</span><span>남은 탄만큼 굵은 선 · 끝 눈금 = 다음 탄 · 안쪽 잔눈금 30칸 · 10발 이하 깜빡임</span>
+      <span>24 ×3 [STD]</span><span>잔탄 · 예비 탄창 · 탄종 칩 (바꾸면 호 위에 크게 표시)</span>
       <span>바깥 실선</span><span>드론 사격 직후·배터리 20% 이하일 때만: 배터리와 드론 탄 ◆◆</span>
       <span>점</span><span>기어 쿨타임 중일 때만 호 위에 표시, 준비되면 한 번 깜빡</span>
       <span>눈금 3칸</span><span>드론 마킹 직후 잠깐 표시</span>
     </div>
     <div class="lab">팔찌 동작 UI</div>
     <div class="seq">
-      <span>문 열기</span><span>팔찌 둘레 링이 차오르고 잠금 4조각이 돌며 풀림 → 빔 → 문 열림</span>
-      <span>해킹</span><span>팔찌 둘레 3중 링이 틈을 하나씩 맞춤 → 단말 점등</span>
-      <span>스캔</span><span>팔찌에서 스캔 콘 발사, 팔찌 옆에 성분 판독</span>
+      <span>문 열기</span><span>손목 바깥 반원이 차오르고 잠금 4조각이 벌어짐 → 빔 → 문 열림</span>
+      <span>해킹</span><span>반원 3겹의 틈이 가운데로 하나씩 맞춰짐 → 단말 점등</span>
+      <span>스캔</span><span>반원 눈금자가 차오르고 스캔 콘 발사, 반원 바깥에 성분 판독</span>
     </div>
     <div id="err" role="status"></div>
   </aside>

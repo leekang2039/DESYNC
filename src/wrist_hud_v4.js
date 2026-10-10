@@ -127,7 +127,7 @@ for (let i=0;i<NS;i++){ const pv = new THREE.Group(); pv.rotation.z = i/NS*Math.
 
 // ---------------- wrist display: one camera-facing canvas centred on the cuff ----------------
 // Both the aim HUD and the door / hack / scan read-outs are drawn here, so everything comes off the bracelet.
-const N = 768, C = N/2, PLANE = 0.3;               // canvas px, centre, plane size in rig units (≈2560 px / unit)
+const N = 1024, C = N/2, PLANE = 0.4;              // canvas px, centre, plane size in rig units (≈2560 px / unit)
 const wc = document.createElement('canvas'); wc.width = wc.height = N; const g = wc.getContext('2d');
 const wTex = new THREE.CanvasTexture(wc); wTex.colorSpace = THREE.SRGBColorSpace; wTex.anisotropy = 4;
 const wrist = new THREE.Mesh(new THREE.PlaneGeometry(PLANE, PLANE), new THREE.MeshBasicMaterial({map: wTex, transparent: true, depthTest: false, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false}));
@@ -152,70 +152,84 @@ const ACT = {kind: '', t: 0};                       // active bracelet action: '
 const ACT_LEN = {door: 2.6, hack: 3.4, scan: 3.6};
 let hudK = 0, aimK = 0, actK = 0, doorOpen = 0, doorHold = 0, hackLit = 0;
 
-// ---- aim HUD: one hairline arc + the count; drone / gear / mark bits surface only when they change ----
+// ---- aim HUD: one bold arc + the count + a round-type chip; drone / gear / mark bits surface only when they change ----
 const A0 = 62, A1 = 8;                              // arc window (degrees, 0 = right, 90 = up)
-const R_ARC = 188, R_OUT = 204;
-const PEEK = {drone: 0, mark: 0};                   // seconds left to show a contextual bit
+const R_ARC = 188, R_OUT = 208;
+const PEEK = {drone: 0, mark: 0, type: 0};          // seconds left to show a contextual bit
+function chip(label, x, y, size, hot){ g.font = `400 ${size}px ${MONO}`; const w = g.measureText(label).width + size*0.8, h = size*1.35;
+  if (hot){ g.fillStyle = H(0.38); g.fillRect(x, y - h/2, w, h); }
+  g.strokeStyle = hot ? W(1) : E(0.85); g.lineWidth = 2; g.strokeRect(x, y - h/2, w, h);
+  text(label, x + size*0.4, y + 1, size, W(1), 'left', hot); return w; }
 function drawAim(T){
   const kA = ease(clamp(hudK/0.55)), kT = ease(clamp((hudK - 0.25)/0.5)), aEnd = lerp(A0, A1, kA);
   const low = S.ammo <= 10 && S.reload <= 0, blink = low && Math.floor(T*4) % 2 === 0;
   const frac = S.reload > 0 ? clamp(1 - S.reload/1.4) : S.ammo/S.max, aAmmo = lerp(A0, A1, frac), fillEnd = Math.max(aEnd, aAmmo);
-  // the arc: dim track + bright remaining-ammo line + a notch at the next round
-  arc(R_ARC, A0, aEnd, 1, H(0.16));
-  if (frac > 0){ arc(R_ARC, A0, fillEnd, 7, H(0.07)); arc(R_ARC, A0, fillEnd, 2, blink ? H(0.4) : E(0.95)); }
-  if (kA > 0.98 && frac > 0 && S.reload <= 0) tick(R_ARC, aAmmo, 10 + S.recoil*8, 2, W(1));
-  if (hudK < 1) dot(R_ARC, aEnd, 3, true, W(0.9));                     // spark that draws the arc open
-  tick(R_ARC, A0 + 2.5, 8, 1, H(0.5*kT));
-  // count
-  if (kT > 0){ g.globalAlpha = kT; const [x, y] = P(R_ARC + 10, A1 - 13);
-    const n = S.reload > 0 ? '--' : String(S.ammo).padStart(2, '0'), jx = S.glitch > 0 ? (Math.random() - .5)*6 : 0;
-    text(n, x + jx, y + 6, 46, blink ? H(0.5) : W(1), 'left', true);
-    text('×' + S.mags + (S.type ? '  ' + TYPES[S.type] : ''), x + 2, y + 36, 18, S.type ? E(1) : H(0.7));
+  const pt = clamp(PEEK.type/0.5);                                      // round-type change flash
+  // the arc: track + bold remaining-ammo line with a glow band + a notch at the next round + a fine round ruler inside
+  arc(R_ARC, A0, aEnd, 1.6, H(0.25));
+  for (let i=0;i<S.max;i++){ const a = lerp(A0, A1, i/(S.max - 1)); if (a < aEnd) break; tick(R_ARC - 11, a, 5, 1.2, i < S.ammo ? H(0.55) : H(0.15)); }
+  if (frac > 0){ arc(R_ARC, A0, fillEnd, 14, H(0.12 + pt*0.2)); arc(R_ARC, A0, fillEnd, 4, blink ? H(0.45) : pt > 0 ? W(1) : E(1)); }
+  if (kA > 0.98 && frac > 0 && S.reload <= 0) tick(R_ARC, aAmmo, 18 + S.recoil*10, 3, W(1));
+  if (hudK < 1) dot(R_ARC, aEnd, 5, true, W(1));                       // spark that draws the arc open
+  tick(R_ARC, A0 + 2.5, 14, 2, E(0.8*kT));
+  // count · mags · round-type chip
+  if (kT > 0){ g.globalAlpha = kT; const [x, y] = P(R_ARC + 14, A1 - 13);
+    const n = S.reload > 0 ? '--' : String(S.ammo).padStart(2, '0'), jx = S.glitch > 0 ? (Math.random() - .5)*8 : 0;
+    text(n, x + jx, y + 6, 66, blink ? H(0.5) : W(1), 'left', true);
+    text('×' + S.mags, x + 4, y + 52, 24, E(0.95));
+    chip(TYPES[S.type], x + 52, y + 52, 22, pt > 0 || S.type > 0);
     g.globalAlpha = 1; }
-  // drone: outer hairline (battery) + rounds, only after a drone shot or when the battery is low
-  const dA = Math.max(clamp(PEEK.drone/0.4), S.batt <= 20 ? 1 : 0)*kT;
-  if (dA > 0){ g.globalAlpha = dA; const aB = A1 + 12;
-    arc(R_OUT, A0, aB, 1, H(0.2)); arc(R_OUT, A0, lerp(A0, aB, S.batt/100), 1.4, S.batt <= 20 ? W(1) : E(0.9));
-    for (let i=0;i<S.dMax;i++) diamond(R_OUT, aB - 4 - i*6, 3.4, i < S.dAmmo, E(0.95)); g.globalAlpha = 1; }
+  // round-type change: the new type rides above the arc for a moment
+  if (pt > 0){ g.globalAlpha = pt*kT; const [x, y] = P(R_ARC + 26, A0 - 2);
+    text(TYPES[S.type], x, y - 8, 40, W(1), 'left', true); text('ROUND', x + 4, y + 24, 16, E(0.9)); g.globalAlpha = 1; }
+  // drone: outer line (battery) + rounds, only after a drone shot or when the battery is low
+  const dA = Math.max(clamp(PEEK.drone/0.4), S.batt <= 20 ? 1 : 0)*kT*(1 - pt);
+  if (dA > 0){ g.globalAlpha = dA; const aB = A1 + 14;
+    arc(R_OUT, A0, aB, 1.5, H(0.25)); arc(R_OUT, A0, lerp(A0, aB, S.batt/100), 2.5, S.batt <= 20 ? W(1) : E(0.95));
+    for (let i=0;i<S.dMax;i++) diamond(R_OUT, aB - 5 - i*7, 5, i < S.dAmmo, E(1)); g.globalAlpha = 1; }
   // gear: a dot above the arc only while that gear is cooling (ring fills), blinks once when ready
   GEAR.forEach((G, i) => { if (G.left <= 0 && G.ready <= 0) return; const a = A0 + 9 + i*7, [x, y] = P(R_ARC, a);
     g.globalAlpha = kT;
-    if (G.left > 0){ g.strokeStyle = H(0.25); g.lineWidth = 1.3; g.beginPath(); g.arc(x, y, 4, 0, Math.PI*2); g.stroke();
-      g.strokeStyle = E(0.95); g.beginPath(); g.arc(x, y, 4, -Math.PI/2, -Math.PI/2 + (1 - G.left/G.cd)*Math.PI*2); g.stroke(); }
-    else dot(R_ARC, a, 3.4, true, W(Math.floor(G.ready*8) % 2 ? 1 : 0.3));
+    if (G.left > 0){ g.strokeStyle = H(0.3); g.lineWidth = 2; g.beginPath(); g.arc(x, y, 6, 0, Math.PI*2); g.stroke();
+      g.strokeStyle = E(1); g.beginPath(); g.arc(x, y, 6, -Math.PI/2, -Math.PI/2 + (1 - G.left/G.cd)*Math.PI*2); g.stroke(); }
+    else dot(R_ARC, a, 5, true, W(Math.floor(G.ready*8) % 2 ? 1 : 0.3));
     g.globalAlpha = 1; });
   // marks: three ticks on the outer line for a moment after marking
   const mA = clamp(PEEK.mark/0.4)*kT;
-  if (mA > 0){ g.globalAlpha = mA; for (let i=0;i<3;i++) tick(R_OUT, A0 - 4 - i*5, 8, 2, i < S.mark ? E(0.95) : H(0.2)); g.globalAlpha = 1; } }
+  if (mA > 0){ g.globalAlpha = mA; for (let i=0;i<3;i++) tick(R_OUT, A0 - 4 - i*6, 12, 3, i < S.mark ? E(1) : H(0.25)); g.globalAlpha = 1; } }
 
-// ---- bracelet actions: full rings around the cuff, read-out to the right ----
+// ---- bracelet actions: a half-ring on the outer side of the wrist, read-out beyond its middle ----
 const HEX = '0123456789ABCDEF';
+const B0 = 110, B1 = -50, BM = (B0 + B1)/2;          // action window: outer half of the wrist
+const along = k => lerp(B0, B1, k);
+function readout(title, sub, t){ const [x, y] = P(262, BM); text(title, x, y - 16, 34, W(1), 'left', true); text(sub, x + 2, y + 18, 18, E(0.9)); }
 function drawDoor(t){ const k = ease(clamp(t/1.0)), un = ease(clamp((t - 1.0)/0.35)), fade = 1 - clamp((t - 2.2)/0.4);
   g.globalAlpha = fade;
-  arc(168, 90, 90 - 359.9, 1.2, H(0.18)); glowArc(168, 90, 90 - 360*k, 2);
-  for (let i=0;i<4;i++){ const a = 45 + i*90 - un*45, push = un*14; glowArc(190 + push, a + 12, a - 12, 3, 1 - un*0.6); }
-  if (un > 0 && un < 1){ g.globalAlpha = fade*(1 - un); arc(170 + un*70, 0, 359.9, 2, E(0.8)); g.globalAlpha = fade; }
-  text(un > 0.5 ? 'OPEN' : 'UNLOCK', C + 222, C - 14, 26, W(1), 'left', true);
-  text('DOOR B-12  ' + Math.floor(k*100) + '%', C + 224, C + 14, 16, H(0.75)); g.globalAlpha = 1; }
-function drawHack(t){ const LOCK = [0.9, 1.6, 2.3], R = [160, 176, 192], done = t > 2.45, fade = 1 - clamp((t - 3.0)/0.4);
+  arc(196, B0, B1, 1.6, H(0.22)); arc(196, B0, along(k), 12, H(0.12)); arc(196, B0, along(k), 4, E(1));
+  if (k < 1) dot(196, along(k), 5, true, W(1));
+  for (let i=0;i<4;i++){ const a = along((i + 0.5)/4) - un*10, push = un*18; glowArc(220 + push, a + 11, a - 11, 5, 1 - un*0.7); }
+  if (un > 0 && un < 1){ g.globalAlpha = fade*(1 - un); arc(200 + un*80, B0, B1, 3, E(0.9)); g.globalAlpha = fade; }
+  readout(un > 0.5 ? 'OPEN' : 'UNLOCK', 'DOOR B-12 · ' + Math.floor(k*100) + '%'); g.globalAlpha = 1; }
+function drawHack(t){ const LOCK = [0.9, 1.6, 2.3], R = [190, 208, 226], done = t > 2.45, fade = 1 - clamp((t - 3.0)/0.4);
   g.globalAlpha = fade;
-  R.forEach((r, i) => { const locked = t > LOCK[i], rot = locked ? 0 : (i % 2 ? -1 : 1)*t*(140 + i*60) + i*70, gap = 26;
-    const a0 = -gap/2 + rot, a1 = a0 - (360 - gap);       // gap ends up facing right, toward the read-out
-    locked ? glowArc(r, a0, a1, 1.8) : arc(r, a0, a1, 1.4, H(0.45));
-    const fl = locked ? clamp(1 - (t - LOCK[i])*4) : 0; if (fl > 0) arc(r, a0, a1, 8, W(0.35*fl)); });
-  for (let j=0;j<16;j++){ const a = 60 - j*7 - (t*40 % 7); const [x, y] = P(214, a); text(HEX[(Math.random()*16)|0], x, y, 12, H(0.55), 'center'); }
-  text(done ? 'ACCESS' : Math.floor(clamp(t/2.4)*100) + '%', C + 226, C - 14, 26, W(1), 'left', true);
-  text('NODE 04  SYNC ' + LOCK.filter(l => t > l).length + '/3', C + 228, C + 14, 16, H(0.75)); g.globalAlpha = 1; }
+  R.forEach((r, i) => { const locked = t > LOCK[i], gap = 12;
+    // each band's gap slides along the half-ring until it locks on the middle, where all three line up
+    const ga = locked ? BM : BM + Math.sin(t*(3.2 + i*1.3) + i*2)*62;
+    const segs = [[B0, ga + gap/2], [ga - gap/2, B1]];
+    segs.forEach(([a0, a1]) => { if (a0 <= a1) return; locked ? (arc(r, a0, a1, 10, H(0.12)), arc(r, a0, a1, 3.5, E(1))) : arc(r, a0, a1, 2.5, H(0.5)); });
+    const fl = locked ? clamp(1 - (t - LOCK[i])*4) : 0; if (fl > 0) arc(r, B0, B1, 12, W(0.35*fl)); });
+  for (let j=0;j<18;j++){ const a = B0 - 4 - j*8.5 - (t*30 % 8.5); const [x, y] = P(246, a); text(HEX[(Math.random()*16)|0], x, y, 15, H(0.6), 'center'); }
+  readout(done ? 'ACCESS' : Math.floor(clamp(t/2.4)*100) + '%', 'NODE 04 · SYNC ' + LOCK.filter(l => t > l).length + '/3'); g.globalAlpha = 1; }
 function drawScan(t){ const p = clamp(t/2.0), k = ease(clamp((t - 2.0)/0.4)), fade = 1 - clamp((t - 3.2)/0.4);
   g.globalAlpha = fade;
-  arc(168, 90, 90 - 359.9, 1.2, H(0.18)); glowArc(168, 90, 90 - 360*p, 2);
-  for (let i=0;i<36;i++){ const a = 90 - i*10; tick(184, a, i % 3 ? 4 : 8, 1.2, a > 90 - 360*p ? E(0.8) : H(0.15)); }
-  const sweep = 90 - 360*((t*0.8) % 1); if (p < 1) tick(176, sweep, 26, 2, W(0.9));
-  text(p < 1 ? 'SCAN ' + Math.floor(p*100) : 'OBJECT 03', C + 222, C - 14, 24, W(1), 'left', true);
-  if (k > 0){ g.globalAlpha = fade*k; text('위상 결정 파편', C + 224, C + 14, 17, E(0.95));
-    [['Fe-Ni', .62], ['PHASE', .28], ['POLY', .10]].forEach(([n, v], i) => { const y = C + 40 + i*18; text(n, C + 224, y, 13, H(0.7));
-      g.fillStyle = H(0.18); g.fillRect(C + 278, y - 1, 70, 2); g.fillStyle = E(1); g.fillRect(C + 278, y - 1, 70*v*k, 2); });
-    text('RECIPE +1', C + 224, C + 98, 13, W(0.9)); }
+  arc(196, B0, B1, 1.6, H(0.22)); arc(196, B0, along(p), 12, H(0.12)); arc(196, B0, along(p), 4, E(1));
+  for (let i=0;i<=32;i++){ const a = along(i/32); tick(214, a, i % 4 ? 6 : 14, 2, a >= along(p) ? E(0.9) : H(0.2)); }
+  if (p < 1){ const sw = along((Math.sin(t*5) + 1)/2); tick(205, sw, 40, 3, W(1)); }
+  readout(p < 1 ? 'SCAN ' + Math.floor(p*100) : 'OBJECT 03', p < 1 ? 'ANALYZING' : '위상 결정 파편');
+  if (k > 0){ g.globalAlpha = fade*k; const [x, y0] = P(262, BM);
+    [['Fe-Ni', .62], ['PHASE', .28], ['POLY', .10]].forEach(([n, v], i) => { const y = y0 + 50 + i*24; text(n, x + 2, y, 16, H(0.8));
+      g.fillStyle = H(0.2); g.fillRect(x + 72, y - 2, 110, 3); g.fillStyle = E(1); g.fillRect(x + 72, y - 2, 110*v*k, 3); });
+    text('RECIPE +1', x + 2, y0 + 128, 16, W(1)); }
   g.globalAlpha = 1; }
 
 // ---------------- world effects driven by the bracelet ----------------
@@ -236,7 +250,7 @@ function drawMark(n){ const m = markC.getContext('2d'); m.clearRect(0, 0, 256, 2
 function setAim(on){ if (on && ACT.kind) return; S.aim = on; document.querySelectorAll('[data-a="aim"]').forEach(b => b.setAttribute('aria-pressed', String(on))); $('xh').classList.toggle('ads', on); }
 function fire(){ if (!S.aim || S.reload > 0 || S.ammo <= 0) return; S.ammo--; S.recoil = 1; S.flash = 1; S.glitch = 0.08; tr.t = 0.07; }
 function reload(){ if (S.reload > 0 || S.mags <= 0 || S.ammo === S.max) return; S.reload = 1.4; S.mags--; }
-const cycleType = () => { S.type = (S.type + 1) % 3; S.glitch = 0.12; };
+const cycleType = () => { S.type = (S.type + 1) % 3; S.glitch = 0.12; PEEK.type = 1.6; };
 const mark = () => { S.mark = S.mark >= 3 ? 0 : S.mark + 1; PEEK.mark = 2; drawMark(S.mark); };
 const droneFire = () => { PEEK.drone = 2.5; if (S.dAmmo > 0){ S.dAmmo--; S.batt = Math.max(0, S.batt - 6); dtr.t = 0.12; } else S.dAmmo = S.dMax; };
 const gear = i => { if (GEAR[i].left <= 0) GEAR[i].left = GEAR[i].cd; };
@@ -275,7 +289,7 @@ function frame(now){
   if (S.reload > 0){ S.reload -= dt; if (S.reload <= 0){ S.ammo = S.max; S.glitch = .1; } }
   S.recoil = Math.max(0, S.recoil - dt*9); S.flash = Math.max(0, S.flash - dt*18); S.glitch = Math.max(0, S.glitch - dt);
   GEAR.forEach(G => { if (G.left > 0 && G.left <= dt) G.ready = 0.8; G.left = Math.max(0, G.left - dt); G.ready = Math.max(0, G.ready - dt); });
-  PEEK.drone = Math.max(0, PEEK.drone - dt); PEEK.mark = Math.max(0, PEEK.mark - dt);
+  PEEK.drone = Math.max(0, PEEK.drone - dt); PEEK.mark = Math.max(0, PEEK.mark - dt); PEEK.type = Math.max(0, PEEK.type - dt);
   if (ACT.kind){ ACT.t += dt; if (ACT.t > ACT_LEN[ACT.kind]) ACT.kind = ''; }
 
   // pose blend: hip ↔ ads, then ↔ wrist-up while the bracelet is working
@@ -296,7 +310,7 @@ function frame(now){
   rig.position.z += S.recoil*0.022; rig.position.y -= rl*0.05;
   rig.quaternion.copy(_qa); rig.rotateX(S.recoil*0.07 - rl*0.35); rig.rotateZ(rl*0.5);
   wrist.quaternion.copy(rig.quaternion).invert();                  // display faces the eye, centred on the cuff
-  wrist.scale.setScalar(lerp(1.0, 1.35, actK)*(portrait ? lerp(1.55, 1.25, actK) : 1));                     // action rings sit clear of the (closer) cuff
+  wrist.scale.setScalar(lerp(1.0, 1.35, actK)*(portrait ? lerp(1.55, 1.02, actK) : 1));                     // action rings sit clear of the (closer) cuff
   flash.material.opacity = S.flash; flash.material.rotation = Math.random()*6; flash.scale.setScalar(0.06 + S.flash*0.06);
   crystal.rotation.y += dt*0.4;
 
