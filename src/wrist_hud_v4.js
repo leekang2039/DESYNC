@@ -260,6 +260,68 @@ const EMIT_R = 158, EMIT_A = 30;                      // laser emitter on the cu
 function laser(x1, y1, k, al){ if (k <= 0) return; const [ex, ey] = P(EMIT_R, EMIT_A), x = lerp(ex, x1, k), y = lerp(ey, y1, k);
   g.strokeStyle = W(al); g.lineWidth = 1; g.beginPath(); g.moveTo(ex, ey); g.lineTo(x, y); g.stroke();
   if (k < 1){ g.fillStyle = W(al); g.beginPath(); g.arc(x, y, 2.2, 0, Math.PI*2); g.fill(); } }
+// ---- pane interiors: same frame / lasers / deploy, four different readings of what goes inside ----
+const HUD = {style: 0};
+const LOG = [];                                        // TERMINAL style: last few events
+function logEv(s){ LOG.push({s, t: T, dec: Object.assign(new Decoder(''), {base: 0.02, span: 0.3})}); LOG[LOG.length - 1].dec.set(s); if (LOG.length > 3) LOG.shift(); }
+function rollTarget(){ let t = S.type + TYPES.length*Math.floor(roll.target/TYPES.length); while (t < roll.target - 1e-6) t += TYPES.length; roll.target = t; }
+function rightText(s, x, y, size, col){ g.font = `400 ${size}px ${MONO}`; g.textAlign = 'right'; g.textBaseline = 'middle'; g.fillStyle = col; g.fillText(s, x, y); g.textAlign = 'left'; }
+const INTERIORS = [
+  // A · ANALYSIS — the map's CORE ANALYSIS layout: progress ring with the figure, a spaced word, quiet rows
+  {name: 'ANALYSIS', fn: ({bx, by, bw, bh, vis, kT, low, pulse, shot, rl, T}) => {
+    label('AIM', bx + 12, by + 14, kT, 10); spaced(3); rightText('P-07', bx + bw - 12, by + 14, 10, E(0.55*kT)); spaced(0);
+    g.fillStyle = E(0.3); g.fillRect(bx + 12, by + 23, bw - 24, 1);
+    const cx = bx + 44, cy = by + 64, rr = 27, frac = rl ? clamp(1 - S.reload/1.4) : S.ammo/S.max;
+    g.strokeStyle = H(0.22); g.lineWidth = 1; g.beginPath(); g.arc(cx, cy, rr, 0, Math.PI*2); g.stroke();
+    g.strokeStyle = H(0.12); g.lineWidth = 7; g.beginPath(); g.arc(cx, cy, rr, 0, Math.PI*2); g.stroke();
+    if (frac > 0){ g.strokeStyle = (shot > 0 ? W(0.7 + 0.3*shot) : E(0.95*pulse)); g.lineWidth = 3; g.beginPath(); g.arc(cx, cy, rr, -Math.PI/2, -Math.PI/2 + frac*Math.PI*2); g.stroke(); }
+    g.save(); g.translate(cx, cy); g.rotate(T*0.6); g.strokeStyle = H(0.3); g.lineWidth = 1; g.beginPath();
+    for (let k=0;k<6;k++){ const a = k/6*Math.PI*2; g.lineTo(Math.cos(a)*36, Math.sin(a)*36); } g.closePath(); g.stroke(); g.restore();
+    countDec.set(rl ? '--' : String(S.ammo).padStart(2, '0'));
+    g.font = `400 26px ${MONO}`; const cw = g.measureText('0').width;
+    drawDecode(countDec, cx - cw - S.recoil*1.5, cy + 1, 26, vis*kT*(low ? pulse : 1));
+    g.globalAlpha = vis*kT; text('/' + S.max, cx, cy + 19, 10, H(0.6), 'center');
+    const rx = bx + 92; rollTarget(); drawRoller(rx, by + 46, 17, vis*kT, 7);
+    g.globalAlpha = vis*kT; g.fillStyle = H(0.3); g.fillRect(rx, by + 60, bw - 104, 1);
+    magDec.set(String(S.mags)); label('MAG', rx, by + 74, kT, 10); drawDecode(magDec, rx + 38, by + 74, 13, vis*kT);
+    g.globalAlpha = vis*kT; label('RNG', rx, by + 90, kT, 10); text(camera.position.distanceTo(AIM_PT).toFixed(1) + 'm', rx + 38, by + 90, 13, W(0.9*kT)); } },
+  // B · TYPE — one figure carries the pane; everything else is a footnote
+  {name: 'TYPE', fn: ({bx, by, bw, bh, vis, kT, low, pulse, rl}) => {
+    countDec.set(rl ? '--' : String(S.ammo).padStart(2, '0'));
+    drawDecode(countDec, bx + 10 - S.recoil*2, by + 52, 76, vis*kT*(low ? pulse : 1));
+    g.globalAlpha = vis*kT; const x2 = bx + bw - 12;
+    rollTarget(); g.save(); g.translate(x2 - 40, by + 20); drawRoller(0, 0, 13, vis*kT, 5); g.restore();
+    g.globalAlpha = vis*kT; rightText('/' + S.max, x2, by + 50, 14, H(0.65));
+    magDec.set(String(S.mags)); label('MAG', x2 - 46, by + 70, kT, 10); rightText(magDec.cells().map(c => c.ch).join(''), x2, by + 70, 13, W(0.95*kT));
+    const frac = rl ? clamp(1 - S.reload/1.4) : S.ammo/S.max;
+    g.fillStyle = H(0.2); g.fillRect(bx + 12, by + bh - 12, bw - 24, 1); g.fillStyle = E(0.9*pulse); g.fillRect(bx + 12, by + bh - 12.5, (bw - 24)*frac, 2); } },
+  // C · SIGNAL — the magazine as a live trace: the lit stretch of the waveform is what's left; a shot kicks a spike through it
+  {name: 'SIGNAL', fn: ({bx, by, bw, bh, vis, kT, low, pulse, shot, rl, T}) => {
+    label('SIG · RND', bx + 12, by + 14, kT, 10);
+    countDec.set(rl ? '--' : String(S.ammo).padStart(2, '0'));
+    g.font = `400 30px ${MONO}`; const cw = g.measureText('0').width;
+    drawDecode(countDec, bx + bw - 12 - cw*2, by + 22, 30, vis*kT*(low ? pulse : 1));
+    const x0 = bx + 12, x1 = bx + bw - 12, ym = by + 66, frac = rl ? clamp(1 - S.reload/1.4) : S.ammo/S.max, xl = lerp(x0, x1, frac);
+    g.globalAlpha = vis*kT; g.fillStyle = H(0.15); g.fillRect(x0, ym, x1 - x0, 1);
+    const yAt = x => { const u = (x - x0)/(x1 - x0); let y = Math.sin(u*28 + T*7)*6*Math.sin(u*Math.PI) + Math.sin(u*71 - T*13)*2;
+      const sp = Math.exp(-((x - xl)**2)/30)*shot*18; return ym - y - sp; };
+    g.strokeStyle = H(0.25); g.lineWidth = 1; g.beginPath(); for (let x = xl; x <= x1; x += 2) g.lineTo(x, ym + (yAt(x) - ym)*0.25); g.stroke();
+    g.strokeStyle = E(0.95*pulse); g.lineWidth = 1.8; g.beginPath(); for (let x = x0; x <= xl; x += 2) g.lineTo(x, yAt(x)); g.stroke();
+    g.fillStyle = W(1); g.fillRect(xl - 0.5, ym - 12, 1.5, 24);
+    g.globalAlpha = vis*kT; rollTarget(); drawRoller(x0, by + bh - 14, 12, vis*kT, 4);
+    magDec.set(String(S.mags)); g.globalAlpha = vis*kT; label('MAG', x1 - 52, by + bh - 14, kT, 10); rightText(magDec.cells().map(c => c.ch).join(''), x1, by + bh - 14, 13, W(0.95*kT)); } },
+  // D · TERMINAL — the bracelet's own log: aligned rows, and the last events typing in underneath
+  {name: 'TERMINAL', fn: ({bx, by, bw, vis, kT, low, pulse, rl}) => {
+    const rowsT = [['RND', (rl ? '--' : String(S.ammo).padStart(2, '0')) + '/' + S.max], ['MAG', String(S.mags)], ['RNG', camera.position.distanceTo(AIM_PT).toFixed(1) + 'm']];
+    countDec.set(rowsT[0][1]);
+    rowsT.forEach(([k, v], i) => { const y = by + 16 + i*17; g.globalAlpha = vis*kT; text('>', bx + 10, y, 11, E(0.6)); label(k, bx + 22, y, kT, 10);
+      g.fillStyle = H(0.25); for (let d = bx + 58; d < bx + bw - 64; d += 5) g.fillRect(d, y + 3, 1.5, 1);
+      if (i === 0) drawDecode(countDec, bx + bw - 62, y, 14, vis*kT*(low ? pulse : 1)); else rightText(v, bx + bw - 12, y, 13, W(0.9*kT)); });
+    g.globalAlpha = vis*kT; rollTarget(); text('>', bx + 10, by + 67, 11, E(0.6)); label('TYPE', bx + 22, by + 67, kT, 10); drawRoller(bx + bw - 44, by + 67, 12, vis*kT, 4);
+    g.globalAlpha = vis*kT; g.fillStyle = H(0.3); g.fillRect(bx + 10, by + 77, bw - 20, 1);
+    LOG.slice(-1).forEach((e, i) => { const a = clamp(1 - (T - e.t - 2.5)/0.6); g.globalAlpha = vis*kT*a; drawDecode(e.dec, bx + 10, by + 90, 11, vis*kT*a); });
+    if (Math.floor(T*2) % 2){ g.globalAlpha = vis*kT; g.fillStyle = E(0.8); g.fillRect(bx + bw - 18, by + 85, 6, 10); } } },
+];
 // ---- aim HUD in the map's tone, minimal: four lasers off the cuff → corner brackets → a gridded glass pane opens → the figure ----
 function drawAim(T){
   if (hudK <= 0) return;
@@ -285,28 +347,8 @@ function drawAim(T){
     g.fillStyle = H(0.5*(1 - kT)); g.fillRect(bx + 2, y0, bw - 4, 1); g.fillRect(bx + 2, y0 + hh - 1, bw - 4, 1); }
   if (kT <= 0){ g.globalAlpha = 1; return; }
   g.globalAlpha = vis*kT;
-  // inside, laid out like the map's CORE ANALYSIS panel: a progress ring with the figure in it, a spaced-caps word, quiet rows
-  label('AIM', bx + 12, by + 14, kT, 10); { g.textAlign = 'right'; spaced(3); g.font = `400 10px ${MONO}`; g.fillStyle = E(0.55*kT); g.fillText('P-07', bx + bw - 12, by + 14); spaced(0); g.textAlign = 'left'; }
-  g.fillStyle = E(0.3); g.fillRect(bx + 12, by + 23, bw - 24, 1);
-  // ring: the magazine as one continuous arc, a slow hexagon round it, the count decoded in its centre
-  const cx = bx + 44, cy = by + 64, rr = 27, frac = rl ? clamp(1 - S.reload/1.4) : S.ammo/S.max;
-  g.strokeStyle = H(0.22); g.lineWidth = 1; g.beginPath(); g.arc(cx, cy, rr, 0, Math.PI*2); g.stroke();
-  g.strokeStyle = H(0.12); g.lineWidth = 7; g.beginPath(); g.arc(cx, cy, rr, 0, Math.PI*2); g.stroke();
-  if (frac > 0){ g.strokeStyle = (shot > 0 ? W(0.7 + 0.3*shot) : E(0.95*pulse)); g.lineWidth = 3; g.beginPath(); g.arc(cx, cy, rr, -Math.PI/2, -Math.PI/2 + frac*Math.PI*2); g.stroke(); }
-  g.save(); g.translate(cx, cy); g.rotate(T*0.6); g.strokeStyle = H(0.3); g.lineWidth = 1; g.beginPath();
-  for (let k=0;k<6;k++){ const a = k/6*Math.PI*2; g.lineTo(Math.cos(a)*36, Math.sin(a)*36); } g.closePath(); g.stroke(); g.restore();
-  countDec.set(rl ? '--' : String(S.ammo).padStart(2, '0'));
-  g.font = `400 26px ${MONO}`; const cw = g.measureText('0').width;
-  drawDecode(countDec, cx - cw - S.recoil*1.5, cy + 1, 26, vis*kT*(low ? pulse : 1));
-  g.globalAlpha = vis*kT; text('/' + S.max, cx, cy + 19, 10, H(0.6), 'center');
-  // right column: the round type as a spaced word (still the roller), a rule, two data rows
-  const rx = bx + 92;
-  roll.target = (() => { let t = S.type + TYPES.length*Math.floor(roll.target/TYPES.length); while (t < roll.target - 1e-6) t += TYPES.length; return t; })();
-  drawRoller(rx, by + 46, 17, vis*kT, 7);
-  g.globalAlpha = vis*kT; g.fillStyle = H(0.3); g.fillRect(rx, by + 60, bw - 104, 1);
-  magDec.set(String(S.mags)); label('MAG', rx, by + 74, kT, 10); drawDecode(magDec, rx + 38, by + 74, 13, vis*kT);
-  const rng = camera.position.distanceTo(AIM_PT).toFixed(1);
-  g.globalAlpha = vis*kT; label('RNG', rx, by + 90, kT, 10); text(rng + 'm', rx + 38, by + 90, 13, W(0.9*kT));
+  INTERIORS[HUD.style].fn({bx, by, bw, bh, vis, kT, low, pulse, shot, rl, T});
+  g.globalAlpha = vis*kT;
   // contextual rows stack under the pane only while they matter (decode in, then fade)
   const rows = [];
   if (PEEK.drone > 0 || S.batt <= 20) rows.push([droneDec, 'P-07', 'BATT ' + Math.round(S.batt) + '  RD ' + S.dAmmo, Math.max(clamp(PEEK.drone/0.4), S.batt <= 20 ? 1 : 0)]); else droneDec.cur = droneDec.prev = '';
@@ -376,9 +418,9 @@ function drawMark(n){ const m = markC.getContext('2d'); m.clearRect(0, 0, 256, 2
 
 // ---------------- input ----------------
 function setAim(on){ if (on && !S.aim && hudK < 0.05) aimIn(); S.aim = on; document.querySelectorAll('[data-a="aim"]').forEach(b => b.setAttribute('aria-pressed', String(on))); $('xh').classList.toggle('ads', on); }
-function fire(){ if (!S.aim || S.reload > 0 || S.ammo <= 0) return; S.ammo--; AIMD.pulse = T; S.recoil = 1; S.flash = 1; S.glitch = 0.08; tr.t = 0.07; }
-function reload(){ if (S.reload > 0 || S.mags <= 0 || S.ammo === S.max) return; S.reload = 1.4; S.mags--; }
-const cycleType = () => { S.type = (S.type + 1) % 3; };   // dType turns to it
+function fire(){ if (!S.aim || S.reload > 0 || S.ammo <= 0) return; S.ammo--; AIMD.pulse = T; logEv('SHOT  ' + String(S.ammo + 1).padStart(2, '0') + '>' + String(S.ammo).padStart(2, '0')); S.recoil = 1; S.flash = 1; S.glitch = 0.08; tr.t = 0.07; }
+function reload(){ if (S.reload > 0 || S.mags <= 0 || S.ammo === S.max) return; S.reload = 1.4; S.mags--; logEv('RELOAD  MAG ' + S.mags); }
+const cycleType = () => { S.type = (S.type + 1) % 3; logEv('ROUND  ' + TYPES[S.type]); };   // dType turns to it
 const mark = () => { S.mark = S.mark >= 3 ? 0 : S.mark + 1; PEEK.mark = 2; drawMark(S.mark); };
 const droneFire = () => { PEEK.drone = 2.5; if (S.dAmmo > 0){ S.dAmmo--; S.batt = Math.max(0, S.batt - 6); dtr.t = 0.12; } else S.dAmmo = S.dMax; };
 const gear = i => { if (GEAR[i].left <= 0) GEAR[i].left = GEAR[i].cd; };
@@ -387,7 +429,7 @@ function act(kind){ if (ACT.kind) return; ACT.kind = kind; ACT.t = 0; ACT.cached
 const tr = {t: 0}, dtr = {t: 0};
 // buttons (side rail on desktop, the on-screen dock on phones) share data-a names
 const BTN = {aim: () => setAim(!S.aim), fire: () => { if (!S.aim) setAim(true); fire(); }, reload, type: cycleType, mark, drone: droneFire,
-  door: () => act('door'), hack: () => act('hack'), scan: () => act('scan'), g0: () => gear(0), g1: () => gear(1), g2: () => gear(2), forget: () => KNOWN.clear()};
+  door: () => act('door'), hack: () => act('hack'), scan: () => act('scan'), g0: () => gear(0), g1: () => gear(1), g2: () => gear(2), forget: () => KNOWN.clear(), style: () => { HUD.style = (HUD.style + 1) % INTERIORS.length; AIMD.t0 = T; countDec.scramble(); magDec.scramble(); document.querySelectorAll('[data-a="style"]').forEach(b => b.textContent = 'HUD ' + INTERIORS[HUD.style].name); }};
 document.querySelectorAll('[data-a]').forEach(b => b.addEventListener('click', () => BTN[b.dataset.a]?.()));
 cv.addEventListener('contextmenu', e => e.preventDefault());
 cv.addEventListener('pointerdown', e => { if (e.button === 2) setAim(true); else if (e.button === 0) fire(); });
@@ -487,11 +529,11 @@ function frame(now){
   dtr.t = Math.max(0, dtr.t - dt); seg(dTracer, 0, _w.set(-2.5, 4.2, -3), AIM_PT); dTracer.material.opacity = dtr.t > 0 ? 1 : 0;
   markS.material.opacity = S.mark ? 0.9 : 0;
 
-  $('state').textContent = ACT.kind ? 'BRACELET · ' + ACT.kind.toUpperCase() : S.aim ? 'AIM' : 'HIP';
+  $('state').textContent = (ACT.kind ? 'BRACELET · ' + ACT.kind.toUpperCase() : S.aim ? 'AIM' : 'HIP') + '  ·  HUD ' + INTERIORS[HUD.style].name;
   composer.render();
   requestAnimationFrame(frame);
 }
 drawMark(S.mark);
 requestAnimationFrame(frame);
 let frozen = false;
-window.__wrist = {S, ACT, KNOWN, roll, GEAR, PEEK, AIMD, setAim, fire, act, gear, now: () => T, freeze: v => { frozen = v; }};   // capture / debug hook   // capture / debug hook
+window.__wrist = {S, ACT, KNOWN, roll, GEAR, PEEK, AIMD, HUD, setAim, fire, act, gear, now: () => T, freeze: v => { frozen = v; }};   // capture / debug hook   // capture / debug hook
