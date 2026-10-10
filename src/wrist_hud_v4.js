@@ -152,84 +152,111 @@ const ACT = {kind: '', t: 0};                       // active bracelet action: '
 const ACT_LEN = {door: 2.6, hack: 3.4, scan: 3.6};
 let hudK = 0, aimK = 0, actK = 0, doorOpen = 0, doorHold = 0, hackLit = 0;
 
-// ---- aim HUD: one bold arc + the count + a round-type chip; drone / gear / mark bits surface only when they change ----
-const A0 = 62, A1 = 8;                              // arc window (degrees, 0 = right, 90 = up)
-const R_ARC = 188, R_OUT = 208;
-const PEEK = {drone: 0, mark: 0, type: 0};          // seconds left to show a contextual bit
-function chip(label, x, y, size, hot){ g.font = `400 ${size}px ${MONO}`; const w = g.measureText(label).width + size*0.8, h = size*1.35;
-  if (hot){ g.fillStyle = H(0.38); g.fillRect(x, y - h/2, w, h); }
-  g.strokeStyle = hot ? W(1) : E(0.85); g.lineWidth = 2; g.strokeRect(x, y - h/2, w, h);
-  text(label, x + size*0.4, y + 1, size, W(1), 'left', hot); return w; }
+// ---- shared arc language: segmented band + fading hairline with end caps + caret ----
+// Every arc on the bracelet is built from these, so the aim HUD and the door / hack / scan read-outs feel like one instrument.
+function segBand(r, a0, a1, n, w, colOf, gap=0.28){             // n curved blocks from a0 to a1; colOf(i) → colour or null
+  const step = (a0 - a1)/n;
+  for (let i=0;i<n;i++){ const c = colOf(i); if (!c) continue; const s0 = a0 - i*step - step*gap/2, s1 = s0 - step*(1 - gap);
+    g.strokeStyle = c; g.lineWidth = w; g.lineCap = 'butt'; g.beginPath(); g.arc(C, C, r, -s0*D2R, -s1*D2R, false); g.stroke(); } }
+function hair(r, a0, a1, a=1, ticks=0){                          // hairline whose ends fade out, end caps, optional minor ticks
+  const n = Math.max(2, Math.ceil(Math.abs(a0 - a1)/2));
+  for (let i=0;i<n;i++){ const k0 = i/n, k1 = (i + 1)/n, fadeK = Math.min(1, Math.min(k0, 1 - k1)*6 + 0.15);
+    arc(r, lerp(a0, a1, k0), lerp(a0, a1, k1), 1.2, E(0.75*a*fadeK)); }
+  if (ticks) for (let t = a0; t >= a1; t -= ticks) tick(r + 3, t, 4, 1, H(0.35*a));
+  tick(r, a0, 12, 1.5, E(0.9*a)); tick(r, a1, 12, 1.5, E(0.9*a)); }
+function caret(r, a, s, col){ const [x, y] = P(r, a), [ix, iy] = P(r - s*1.4, a), t = (a + 90)*D2R, dx = Math.cos(t)*s*0.7, dy = -Math.sin(t)*s*0.7;
+  g.fillStyle = col; g.beginPath(); g.moveTo(ix, iy); g.lineTo(x + dx, y + dy); g.lineTo(x - dx, y - dy); g.closePath(); g.fill(); }
+function spaced(px){ if ('letterSpacing' in g) g.letterSpacing = px + 'px'; }
+function readout(x, y, label, big, sub, a=1){                       // small spaced caps label · big value · sub line
+  g.globalAlpha *= a; spaced(4); text(label, x, y - 34, 15, E(0.75)); spaced(0);
+  text(big, x - 2, y, 38, W(1), 'left', true); if (sub) text(sub, x, y + 32, 17, H(0.8)); g.globalAlpha /= a; }
+
+// ---- aim HUD ----
+const A0 = 70, A1 = 4;                              // arc window (degrees, 0 = right, 90 = up)
+const R_ARC = 190, R_HAIR = 205, R_OUT = 220;
+const PEEK = {drone: 0, mark: 0};
+const DRUM = {pos: 0, vel: 0};                      // round-type drum: rotates like a revolver cylinder
+const DRUM_R = 252, DRUM_A = -27, DRUM_STEP = 22;   // drum radius, reading angle, chamber spacing (degrees)
+function drawDrum(kT){
+  // all types sit on a circle round the cuff; only the one at the reading angle shows at rest,
+  // its neighbours appear while the cylinder turns, then click out of sight
+  const turning = Math.abs(DRUM.pos - S.type) > 0.01 || Math.abs(DRUM.vel) > 0.05;
+  if (turning) for (let c=-2;c<=2;c++){ const ca = DRUM_A + (c - (DRUM.pos % 1))*DRUM_STEP*0.45; dot(DRUM_R - 14, ca, 2.4, true, H(0.55*clamp(1 - Math.abs(ca - DRUM_A)/24))); }
+  for (let k=-1;k<=TYPES.length;k++){ const idx = ((k % TYPES.length) + TYPES.length) % TYPES.length, d = k - DRUM.pos;
+    const vis = clamp(1 - Math.abs(d)*0.95); if (vis <= 0.01 || (!turning && Math.abs(d) > 0.5)) continue;
+    const a = DRUM_A - d*DRUM_STEP, [x, y] = P(DRUM_R, a);
+    g.save(); g.translate(x, y); g.rotate(-(a - DRUM_A)*D2R); g.globalAlpha = kT*vis;
+    spaced(3); text(TYPES[idx], 0, 0, 26, Math.abs(d) < 0.5 ? W(1) : E(0.8), 'left', Math.abs(d) < 0.5); spaced(0); g.restore(); }
+  g.globalAlpha = 1; }
 function drawAim(T){
-  const kA = ease(clamp(hudK/0.55)), kT = ease(clamp((hudK - 0.25)/0.5)), aEnd = lerp(A0, A1, kA);
+  const kA = ease(clamp(hudK/0.6)), kT = ease(clamp((hudK - 0.3)/0.5));
   const low = S.ammo <= 10 && S.reload <= 0, blink = low && Math.floor(T*4) % 2 === 0;
-  const frac = S.reload > 0 ? clamp(1 - S.reload/1.4) : S.ammo/S.max, aAmmo = lerp(A0, A1, frac), fillEnd = Math.max(aEnd, aAmmo);
-  const pt = clamp(PEEK.type/0.5);                                      // round-type change flash
-  // the arc: track + bold remaining-ammo line with a glow band + a notch at the next round + a fine round ruler inside
-  arc(R_ARC, A0, aEnd, 1.6, H(0.25));
-  for (let i=0;i<S.max;i++){ const a = lerp(A0, A1, i/(S.max - 1)); if (a < aEnd) break; tick(R_ARC - 11, a, 5, 1.2, i < S.ammo ? H(0.55) : H(0.15)); }
-  if (frac > 0){ arc(R_ARC, A0, fillEnd, 14, H(0.12 + pt*0.2)); arc(R_ARC, A0, fillEnd, 4, blink ? H(0.45) : pt > 0 ? W(1) : E(1)); }
-  if (kA > 0.98 && frac > 0 && S.reload <= 0) tick(R_ARC, aAmmo, 18 + S.recoil*10, 3, W(1));
-  if (hudK < 1) dot(R_ARC, aEnd, 5, true, W(1));                       // spark that draws the arc open
-  tick(R_ARC, A0 + 2.5, 14, 2, E(0.8*kT));
-  // count · mags · round-type chip
-  if (kT > 0){ g.globalAlpha = kT; const [x, y] = P(R_ARC + 14, A1 - 13);
+  const refill = S.reload > 0 ? clamp(1 - S.reload/1.4) : 1;
+  // band: one block per round, cascading on as the HUD opens; next round is the bright one
+  segBand(R_ARC, A0, A1, S.max, 8, i => {
+    if (i/S.max > kA) return null;
+    const on = S.reload > 0 ? i/S.max < refill : i < S.ammo, head = on && S.reload <= 0 && i === S.ammo - 1;
+    return head ? W(1) : on ? (blink ? H(0.35) : E(0.92)) : H(0.12); });
+  // hairline guide + caret on the next round
+  if (kT > 0){ hair(R_HAIR, A0, lerp(A0, A1, kT), kT, 5);
+    if (S.ammo > 0 && S.reload <= 0){ const aN = A0 - (S.ammo - 0.5)*(A0 - A1)/S.max; caret(R_HAIR - 3, aN + S.recoil*1.5, 5, W(kT)); } }
+  // count + mags + round-type drum
+  if (kT > 0){ g.globalAlpha = kT; const [x, y] = P(R_ARC + 16, A1 - 10);
     const n = S.reload > 0 ? '--' : String(S.ammo).padStart(2, '0'), jx = S.glitch > 0 ? (Math.random() - .5)*8 : 0;
-    text(n, x + jx, y + 6, 66, blink ? H(0.5) : W(1), 'left', true);
-    text('×' + S.mags, x + 4, y + 52, 24, E(0.95));
-    chip(TYPES[S.type], x + 52, y + 52, 22, pt > 0 || S.type > 0);
-    g.globalAlpha = 1; }
-  // round-type change: the new type rides above the arc for a moment
-  if (pt > 0){ g.globalAlpha = pt*kT; const [x, y] = P(R_ARC + 26, A0 - 2);
-    text(TYPES[S.type], x, y - 8, 40, W(1), 'left', true); text('ROUND', x + 4, y + 24, 16, E(0.9)); g.globalAlpha = 1; }
-  // drone: outer line (battery) + rounds, only after a drone shot or when the battery is low
-  const dA = Math.max(clamp(PEEK.drone/0.4), S.batt <= 20 ? 1 : 0)*kT*(1 - pt);
-  if (dA > 0){ g.globalAlpha = dA; const aB = A1 + 14;
-    arc(R_OUT, A0, aB, 1.5, H(0.25)); arc(R_OUT, A0, lerp(A0, aB, S.batt/100), 2.5, S.batt <= 20 ? W(1) : E(0.95));
-    for (let i=0;i<S.dMax;i++) diamond(R_OUT, aB - 5 - i*7, 5, i < S.dAmmo, E(1)); g.globalAlpha = 1; }
-  // gear: a dot above the arc only while that gear is cooling (ring fills), blinks once when ready
-  GEAR.forEach((G, i) => { if (G.left <= 0 && G.ready <= 0) return; const a = A0 + 9 + i*7, [x, y] = P(R_ARC, a);
-    g.globalAlpha = kT;
+    text(n, x + jx, y + 8, 64, blink ? H(0.5) : W(1), 'left', true);
+    spaced(2); text('×' + S.mags, x + 88, y - 10, 20, E(0.85)); spaced(0);
+    g.globalAlpha = 1; drawDrum(kT); }
+  // drone: segmented battery on the outer track + rounds, only after a drone shot or when the battery is low
+  const dA = Math.max(clamp(PEEK.drone/0.4), S.batt <= 20 ? 1 : 0)*kT;
+  if (dA > 0){ g.globalAlpha = dA; const aB = A1 + 16;
+    segBand(R_OUT, A0, aB, 10, 3, i => i < Math.round(S.batt/10) ? (S.batt <= 20 ? W(1) : E(0.9)) : H(0.15), 0.35);
+    for (let i=0;i<S.dMax;i++) diamond(R_OUT, aB - 5 - i*7, 4.5, i < S.dAmmo, E(1)); g.globalAlpha = 1; }
+  // gear: a small ring above the band only while cooling, blinks once when ready
+  GEAR.forEach((G, i) => { if (G.left <= 0 && G.ready <= 0) return; const a = A0 + 8 + i*7, [x, y] = P(R_ARC, a); g.globalAlpha = kT;
     if (G.left > 0){ g.strokeStyle = H(0.3); g.lineWidth = 2; g.beginPath(); g.arc(x, y, 6, 0, Math.PI*2); g.stroke();
       g.strokeStyle = E(1); g.beginPath(); g.arc(x, y, 6, -Math.PI/2, -Math.PI/2 + (1 - G.left/G.cd)*Math.PI*2); g.stroke(); }
     else dot(R_ARC, a, 5, true, W(Math.floor(G.ready*8) % 2 ? 1 : 0.3));
     g.globalAlpha = 1; });
-  // marks: three ticks on the outer line for a moment after marking
+  // marks: three blocks on the outer track for a moment after marking
   const mA = clamp(PEEK.mark/0.4)*kT;
-  if (mA > 0){ g.globalAlpha = mA; for (let i=0;i<3;i++) tick(R_OUT, A0 - 4 - i*6, 12, 3, i < S.mark ? E(1) : H(0.25)); g.globalAlpha = 1; } }
+  if (mA > 0){ g.globalAlpha = mA; segBand(R_OUT, A0, A0 - 18, 3, 5, i => i < S.mark ? E(1) : H(0.2), 0.3); g.globalAlpha = 1; } }
 
-// ---- bracelet actions: a half-ring on the outer side of the wrist, read-out beyond its middle ----
+// ---- bracelet actions: the same band / hairline language on a half-ring over the outer side of the wrist ----
 const HEX = '0123456789ABCDEF';
-const B0 = 110, B1 = -50, BM = (B0 + B1)/2;          // action window: outer half of the wrist
+const B0 = 110, B1 = -50, BM = (B0 + B1)/2;          // action window
 const along = k => lerp(B0, B1, k);
-function readout(title, sub, t){ const [x, y] = P(262, BM); text(title, x, y - 16, 34, W(1), 'left', true); text(sub, x + 2, y + 18, 18, E(0.9)); }
+const RO = () => P(272, BM);                         // read-out anchor, beyond the middle of the half-ring
 function drawDoor(t){ const k = ease(clamp(t/1.0)), un = ease(clamp((t - 1.0)/0.35)), fade = 1 - clamp((t - 2.2)/0.4);
   g.globalAlpha = fade;
-  arc(196, B0, B1, 1.6, H(0.22)); arc(196, B0, along(k), 12, H(0.12)); arc(196, B0, along(k), 4, E(1));
-  if (k < 1) dot(196, along(k), 5, true, W(1));
-  for (let i=0;i<4;i++){ const a = along((i + 0.5)/4) - un*10, push = un*18; glowArc(220 + push, a + 11, a - 11, 5, 1 - un*0.7); }
-  if (un > 0 && un < 1){ g.globalAlpha = fade*(1 - un); arc(200 + un*80, B0, B1, 3, E(0.9)); g.globalAlpha = fade; }
-  readout(un > 0.5 ? 'OPEN' : 'UNLOCK', 'DOOR B-12 · ' + Math.floor(k*100) + '%'); g.globalAlpha = 1; }
-function drawHack(t){ const LOCK = [0.9, 1.6, 2.3], R = [190, 208, 226], done = t > 2.45, fade = 1 - clamp((t - 3.0)/0.4);
+  segBand(196, B0, B1, 32, 9, i => i/32 < k ? (i === Math.floor(k*32) - 1 && k < 1 ? W(1) : E(0.92)) : H(0.12));
+  hair(214, B0, B1, 1, 10);
+  for (let q=0;q<4;q++){ const a = along((q + 0.5)/4), out = un*22;          // lock bolts on the hairline retract outward
+    g.globalAlpha = fade*(1 - un*0.85); segBand(226 + out, a + 6, a - 6, 1, 10, () => W(1), 0); g.globalAlpha = fade; }
+  if (un > 0 && un < 1){ g.globalAlpha = fade*(1 - un); hair(214 + un*70, B0, B1, 1); g.globalAlpha = fade; }
+  const [x, y] = RO(); readout(x, y, 'DOOR B-12', un > 0.5 ? 'OPEN' : 'UNLOCK', Math.floor(k*100) + '%'); g.globalAlpha = 1; }
+function drawHack(t){ const LOCK = [0.9, 1.6, 2.3], R = [186, 202, 218], done = t > 2.45, fade = 1 - clamp((t - 3.0)/0.4);
   g.globalAlpha = fade;
-  R.forEach((r, i) => { const locked = t > LOCK[i], gap = 12;
-    // each band's gap slides along the half-ring until it locks on the middle, where all three line up
-    const ga = locked ? BM : BM + Math.sin(t*(3.2 + i*1.3) + i*2)*62;
-    const segs = [[B0, ga + gap/2], [ga - gap/2, B1]];
-    segs.forEach(([a0, a1]) => { if (a0 <= a1) return; locked ? (arc(r, a0, a1, 10, H(0.12)), arc(r, a0, a1, 3.5, E(1))) : arc(r, a0, a1, 2.5, H(0.5)); });
-    const fl = locked ? clamp(1 - (t - LOCK[i])*4) : 0; if (fl > 0) arc(r, B0, B1, 12, W(0.35*fl)); });
-  for (let j=0;j<18;j++){ const a = B0 - 4 - j*8.5 - (t*30 % 8.5); const [x, y] = P(246, a); text(HEX[(Math.random()*16)|0], x, y, 15, H(0.6), 'center'); }
-  readout(done ? 'ACCESS' : Math.floor(clamp(t/2.4)*100) + '%', 'NODE 04 · SYNC ' + LOCK.filter(l => t > l).length + '/3'); g.globalAlpha = 1; }
+  // three cipher tracks: scrolling bit patterns that freeze one by one into a solid band inside the centre window
+  R.forEach((r, i) => { const locked = t > LOCK[i], n = 40, shift = Math.floor(t*(14 + i*6));
+    segBand(r, B0, B1, n, 5, j => { const inWin = Math.abs(along((j + 0.5)/n) - BM) < 9;
+      if (locked) return inWin ? W(1) : H(0.14);
+      return ((j*7 + shift*(i + 1)*3 + i*11) % 5) < 2 ? E(0.75) : H(0.12); }, 0.3);
+    const fl = locked ? clamp(1 - (t - LOCK[i])*4) : 0; if (fl > 0) arc(r, BM + 9, BM - 9, 14, W(0.4*fl)); });
+  [BM + 10, BM - 10].forEach(a => tick(202, a, 52, 1.5, E(0.9)));            // centre window brackets
+  hair(234, B0, B1, 1, 10);
+  for (let j=0;j<12;j++){ const a = B0 - 6 - j*13 - (t*26 % 13); const [x, y] = P(248, a); text(HEX[(Math.random()*16)|0], x, y, 13, H(0.5), 'center'); }
+  const [x, y] = RO(); readout(x, y, 'NODE 04', done ? 'ACCESS' : Math.floor(clamp(t/2.4)*100) + '%', 'SYNC ' + LOCK.filter(l => t > l).length + '/3'); g.globalAlpha = 1; }
 function drawScan(t){ const p = clamp(t/2.0), k = ease(clamp((t - 2.0)/0.4)), fade = 1 - clamp((t - 3.2)/0.4);
   g.globalAlpha = fade;
-  arc(196, B0, B1, 1.6, H(0.22)); arc(196, B0, along(p), 12, H(0.12)); arc(196, B0, along(p), 4, E(1));
-  for (let i=0;i<=32;i++){ const a = along(i/32); tick(214, a, i % 4 ? 6 : 14, 2, a >= along(p) ? E(0.9) : H(0.2)); }
-  if (p < 1){ const sw = along((Math.sin(t*5) + 1)/2); tick(205, sw, 40, 3, W(1)); }
-  readout(p < 1 ? 'SCAN ' + Math.floor(p*100) : 'OBJECT 03', p < 1 ? 'ANALYZING' : '위상 결정 파편');
-  if (k > 0){ g.globalAlpha = fade*k; const [x, y0] = P(262, BM);
-    [['Fe-Ni', .62], ['PHASE', .28], ['POLY', .10]].forEach(([n, v], i) => { const y = y0 + 50 + i*24; text(n, x + 2, y, 16, H(0.8));
-      g.fillStyle = H(0.2); g.fillRect(x + 72, y - 2, 110, 3); g.fillStyle = E(1); g.fillRect(x + 72, y - 2, 110*v*k, 3); });
-    text('RECIPE +1', x + 2, y0 + 128, 16, W(1)); }
+  segBand(196, B0, B1, 32, 9, i => i/32 < p ? E(0.92) : H(0.12));
+  hair(214, B0, B1, 1, 5);
+  if (p < 1){ const sw = along((Math.sin(t*4.5) + 1)/2);                     // sweep: a soft wedge riding the half-ring
+    for (let w=0; w<8; w++) arc(205, sw + w*1.2, sw + w*1.2 - 1.2, 34, H(0.12*(1 - w/8)));
+    tick(205, sw, 44, 2, W(1)); caret(222, sw, 5, W(1)); }
+  const [x, y] = RO(); readout(x, y, p < 1 ? 'SCANNING' : 'OBJECT 03', p < 1 ? Math.floor(p*100) + '%' : '위상 결정 파편', p < 1 ? '' : 'RECIPE +1');
+  if (k > 0){ g.globalAlpha = fade*k;
+    [['Fe-Ni', .62], ['PHASE', .28], ['POLY', .10]].forEach(([n, v], i) => { const yy = y + 66 + i*24; text(n, x, yy, 15, H(0.8));
+      for (let b=0;b<10;b++){ g.fillStyle = b < Math.round(v*10*k) ? E(1) : H(0.18); g.fillRect(x + 70 + b*12, yy - 3, 9, 5); } }); }
   g.globalAlpha = 1; }
 
 // ---------------- world effects driven by the bracelet ----------------
@@ -250,7 +277,7 @@ function drawMark(n){ const m = markC.getContext('2d'); m.clearRect(0, 0, 256, 2
 function setAim(on){ if (on && ACT.kind) return; S.aim = on; document.querySelectorAll('[data-a="aim"]').forEach(b => b.setAttribute('aria-pressed', String(on))); $('xh').classList.toggle('ads', on); }
 function fire(){ if (!S.aim || S.reload > 0 || S.ammo <= 0) return; S.ammo--; S.recoil = 1; S.flash = 1; S.glitch = 0.08; tr.t = 0.07; }
 function reload(){ if (S.reload > 0 || S.mags <= 0 || S.ammo === S.max) return; S.reload = 1.4; S.mags--; }
-const cycleType = () => { S.type = (S.type + 1) % 3; S.glitch = 0.12; PEEK.type = 1.6; };
+const cycleType = () => { S.type = (S.type + 1) % 3; };   // the drum below turns to the new type
 const mark = () => { S.mark = S.mark >= 3 ? 0 : S.mark + 1; PEEK.mark = 2; drawMark(S.mark); };
 const droneFire = () => { PEEK.drone = 2.5; if (S.dAmmo > 0){ S.dAmmo--; S.batt = Math.max(0, S.batt - 6); dtr.t = 0.12; } else S.dAmmo = S.dMax; };
 const gear = i => { if (GEAR[i].left <= 0) GEAR[i].left = GEAR[i].cd; };
@@ -285,11 +312,15 @@ new ResizeObserver(resize).observe(stage); resize();
 // ---------------- loop ----------------
 let last = performance.now(), T = 0;
 function frame(now){
-  const dt = Math.min(0.05, (now - last)/1000); last = now; T += dt;
+  const dt = clamp((now - last)/1000, 0, 0.05); last = now; T += dt;   // rAF can stamp the first frame before `last`
   if (S.reload > 0){ S.reload -= dt; if (S.reload <= 0){ S.ammo = S.max; S.glitch = .1; } }
   S.recoil = Math.max(0, S.recoil - dt*9); S.flash = Math.max(0, S.flash - dt*18); S.glitch = Math.max(0, S.glitch - dt);
   GEAR.forEach(G => { if (G.left > 0 && G.left <= dt) G.ready = 0.8; G.left = Math.max(0, G.left - dt); G.ready = Math.max(0, G.ready - dt); });
-  PEEK.drone = Math.max(0, PEEK.drone - dt); PEEK.mark = Math.max(0, PEEK.mark - dt); PEEK.type = Math.max(0, PEEK.type - dt);
+  PEEK.drone = Math.max(0, PEEK.drone - dt); PEEK.mark = Math.max(0, PEEK.mark - dt);
+  { // revolver drum: spring toward the next chamber (always turning forward), slight overshoot = the click
+    let target = S.type; while (target < DRUM.pos - 0.5) target += TYPES.length;
+    DRUM.vel += ((target - DRUM.pos)*260 - DRUM.vel*20)*dt; DRUM.pos += DRUM.vel*dt;
+    if (Math.abs(target - DRUM.pos) < 0.002 && Math.abs(DRUM.vel) < 0.02){ DRUM.pos = S.type; DRUM.vel = 0; } }
   if (ACT.kind){ ACT.t += dt; if (ACT.t > ACT_LEN[ACT.kind]) ACT.kind = ''; }
 
   // pose blend: hip ↔ ads, then ↔ wrist-up while the bracelet is working
@@ -352,4 +383,4 @@ function frame(now){
 }
 drawMark(S.mark);
 requestAnimationFrame(frame);
-window.__wrist = {S, ACT, setAim, fire, act, gear};   // capture / debug hook
+window.__wrist = {S, ACT, DRUM, GEAR, PEEK, setAim, fire, act, gear};   // capture / debug hook
