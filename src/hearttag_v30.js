@@ -34,15 +34,15 @@ try { renderer = new THREE.WebGLRenderer({canvas: $('c'), antialias: true}); }
 catch (e) { fail('WebGL을 시작할 수 없어요. 하드웨어 가속을 켠 브라우저(Chrome/Edge)에서 열어 주세요.'); throw e; }
 const cv = $('c'), stage = cv.parentElement;
 renderer.setPixelRatio(Math.min(1.75, devicePixelRatio));
-renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.0;
+renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 0.82;
 renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
 const scene = new THREE.Scene(); scene.background = new THREE.Color(0x15181c);
-scene.environment = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(), 0.04).texture; scene.environmentIntensity = 0.5;
+scene.environment = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(), 0.04).texture; scene.environmentIntensity = 0.38;
 const camera = new THREE.PerspectiveCamera(32, 1, 0.1, 400);
 const controls = new OrbitControls(camera, cv); controls.enableDamping = true; controls.minDistance = 6; controls.maxDistance = 90; controls.target.set(0, 0.8, 0);
 scene.add(new THREE.HemisphereLight(0xdfe8f2, 0x23272c, 0.5));
-const key = new THREE.DirectionalLight(0xfff3e6, 2.4); key.position.set(10, 18, 8); scene.add(key);
+const key = new THREE.DirectionalLight(0xfff3e6, 1.9); key.position.set(10, 18, 8); scene.add(key);
 key.castShadow = true; key.shadow.mapSize.set(2048, 2048); key.shadow.bias = -0.0004; key.shadow.normalBias = 0.03;
 Object.assign(key.shadow.camera, {left: -13, right: 13, top: 13, bottom: -13, near: 1, far: 60});
 const rimL = new THREE.DirectionalLight(0xa9c4e0, 0.7); rimL.position.set(-12, 6, -10); scene.add(rimL);
@@ -61,8 +61,8 @@ const noiseT = (() => { const c = document.createElement('canvas'); c.width = c.
   const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(3, 3); return t; })();
 const MT = (c, r, m, o) => new THREE.MeshStandardMaterial(Object.assign({color: c, roughness: r, metalness: m, roughnessMap: noiseT}, o || {}));
 const MAT = {
-  ceramic: new THREE.MeshPhysicalMaterial({color: 0xdedbd4, map: grungeT, roughness: .5, metalness: .05, clearcoat: .35, clearcoatRoughness: .4}),
-  ceramicL:new THREE.MeshPhysicalMaterial({color: 0xcfcbc3, map: grungeT, roughness: .52, metalness: .05, clearcoat: .3, clearcoatRoughness: .45}),
+  ceramic: new THREE.MeshPhysicalMaterial({color: 0xc4c0b8, map: grungeT, roughness: .5, metalness: .05, clearcoat: .35, clearcoatRoughness: .4}),
+  ceramicL:new THREE.MeshPhysicalMaterial({color: 0xb2aea6, map: grungeT, roughness: .52, metalness: .05, clearcoat: .3, clearcoatRoughness: .45}),
   black:   MT(0x141619, 0.62, 0.5),
   frame:   MT(0x222529, 0.5, 0.75),
   gun:     MT(0x33383f, 0.38, 0.85),
@@ -74,8 +74,8 @@ const MAT = {
 const RED = {   // emissive materials — the only lit parts: core + energy paths (+ status pips)
   core:  new THREE.MeshStandardMaterial({color: 0xff2a1c, emissive: 0xff2010, emissiveIntensity: 2}),
   ring:  new THREE.MeshStandardMaterial({color: 0xd0100c, emissive: 0xff1a10, emissiveIntensity: 1.2}),
-  line:  new THREE.MeshStandardMaterial({color: 0x900808, emissive: 0xff1a10, emissiveIntensity: 0.6}),
-  pip:   new THREE.MeshStandardMaterial({color: 0x700808, emissive: 0xff2010, emissiveIntensity: 0.8}),
+  line:  new THREE.MeshStandardMaterial({color: 0x900808, emissive: 0xff1a10, emissiveIntensity: 1.4}),
+  pip:   new THREE.MeshStandardMaterial({color: 0x700808, emissive: 0xff2010, emissiveIntensity: 1.6}),
   lock:  new THREE.MeshStandardMaterial({color: 0x400404, emissive: 0xff3020, emissiveIntensity: 0.2}),
 };
 const flowT = (() => { const c = document.createElement('canvas'); c.width = 128; c.height = 8; const g = c.getContext('2d'); g.fillStyle = '#1a0202'; g.fillRect(0, 0, 128, 8);
@@ -318,7 +318,7 @@ function applyPose(){
   const unlock = seg(0.02, 0.12);
   CLOCK.forEach(pin => { pin.position.x = lerp(1.95, 2.3, unlock); });
   const glowK = 0.15 + 0.45*seg(0.0, 0.2) + 0.4*seg(0.86, 1.0);
-  RED.core.emissiveIntensity = 0.6 + glowK*3.2; RED.ring.emissiveIntensity = 0.3 + glowK*1.6; coreLight.intensity = 1 + glowK*9;
+  RED.core.emissiveIntensity = 1.2 + glowK*5; RED.ring.emissiveIntensity = 0.8 + glowK*2.6; coreLight.intensity = 1 + glowK*9;
   IBLK.forEach((b, i) => { const lockLift = 0.12*seg(0.08, 0.18), rise = seg(0.4 + i*0.01, 0.6 + i*0.01), am = b.userData.am;
     const out = 0.32*rise; b.position.set(Math.cos(am)*out, lockLift + 0.4*rise, -Math.sin(am)*out); });
   // ---- core lift + ring A spread
@@ -364,12 +364,12 @@ function spinStep(dt){
   CORE_ROTOR.rotation.y = S.spin.core.ang; CORE_INNER.rotation.y = S.spin.coreIn.ang;
   drives.forEach(d => { const ang = (d.ring === 'outer' ? S.spin.outer.ang : S.spin.inner.ang)*d.ratio*(d.inner ? 1 : -1); d.pin.rotation.y = ang; d.cpl.rotation.y = ang; });
   RED.flow.emissiveMap.offset.x -= dt*(0.2 + 1.6*sm(clamp(S.p/0.2)));
-  RED.flow.emissiveIntensity = 0.35 + 0.9*sm(clamp(S.p/0.2));
+  RED.flow.emissiveIntensity = 0.8 + 1.6*sm(clamp(S.p/0.2));
 }
 
 // ---------------- post + resize ----------------
 const composer = new EffectComposer(renderer); composer.addPass(new RenderPass(scene, camera));
-const bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.5, 0.35, 0.86); composer.addPass(bloom); composer.addPass(new OutputPass());
+const bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.55, 0.3, 1.05); composer.addPass(bloom); composer.addPass(new OutputPass());
 function resize(){ const w = stage.clientWidth, h = stage.clientHeight; renderer.setSize(w, h, false); composer.setSize(w, h); bloom.setSize(w, h); camera.aspect = w/h; camera.updateProjectionMatrix(); }
 new ResizeObserver(resize).observe(stage); resize();
 const VIEWS = {q34: [[0, 15, 22], [0, 0.6, 0]], top: [[0, 30, 0.01], [0, 0, 0]], low: [[0, 3.2, 21], [0, 1.0, 0]], core: [[3.2, 6.2, 5.6], [0, 1.0, 0]], mod: [[11, 5.5, 4], [6.5, 1.0, 0]]};
