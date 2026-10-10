@@ -1,0 +1,261 @@
+<title>Wrist HUD Minimal</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600&family=Share+Tech+Mono&display=swap">
+<style>
+/* v2: minimal wrist HUD that pops out to the right of the right wrist while aiming (first-person mock) */
+:root{
+  --bg:#070a0e; --panel:#0c1117; --line:#1d2630; --fg:#c9d3dd; --muted:#7d8a97; --head:#f2ede4;
+  --gold:#E8C98C;
+  --f-display:'Chakra Petch',system-ui,sans-serif; --f-mono:'Share Tech Mono',ui-monospace,monospace;
+  color-scheme:dark;
+}
+html,body{height:100%}
+body{background:var(--bg);color:var(--fg);font-family:var(--f-display);margin:0}
+.wrap{display:flex;flex-wrap:wrap;min-height:100%;box-sizing:border-box}
+.stage{flex:999 1 560px;min-width:0;position:relative;display:flex;align-items:center;justify-content:center;background:#05070a}
+.view{width:100%;aspect-ratio:16/9;max-height:100vh;display:block;cursor:crosshair;user-select:none;-webkit-user-select:none;touch-action:none}
+.tag{position:absolute;left:16px;top:14px;font:400 11px var(--f-mono);letter-spacing:.14em;color:var(--muted);pointer-events:none}
+.rail{flex:1 1 300px;box-sizing:border-box;padding:24px 16px 28px;display:flex;flex-direction:column;gap:18px;border-left:1px solid var(--line);background:var(--panel)}
+h1{margin:0;font-size:24px;font-weight:600;color:var(--head);text-wrap:balance}
+p{margin:0;font-size:13px;line-height:1.6;color:#9aa6b2;max-width:46ch}
+.lab{font:400 11px var(--f-mono);letter-spacing:.14em;color:var(--muted);text-transform:uppercase}
+.row{display:flex;flex-wrap:wrap;gap:8px}
+button{appearance:none;border:1px solid #2a3440;background:#0f151c;color:var(--fg);font:500 13px var(--f-display);padding:0 14px;height:44px;min-width:44px;cursor:pointer}
+button:hover{border-color:var(--gold);color:#fff}
+button:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+button[aria-pressed="true"]{border-color:var(--gold);color:var(--gold)}
+kbd{font:400 11px var(--f-mono);color:var(--muted);margin-left:6px}
+.seq{display:grid;grid-template-columns:auto 1fr;gap:6px 12px;font-size:12.5px}
+.seq span:nth-child(odd){font-family:var(--f-mono);color:var(--muted);white-space:nowrap}
+@media (min-width: 900px){ .wrap{height:100vh;flex-wrap:nowrap} .rail{overflow-y:auto;max-width:380px} }
+
+/* svg */
+#rig{transition:transform .18s cubic-bezier(.3,.7,.3,1)}
+.hud{font-family:var(--f-mono);fill:rgba(242,226,189,.82)}
+.hud .acc{fill:#ff8a3a}
+.hud .low{fill:#ff2a3c}
+.hud .dim{fill:rgba(242,226,189,.4)}
+.hud .hair{stroke:rgba(242,226,189,.3);stroke-width:1}
+.hud .trk{fill:rgba(242,226,189,.15)}
+.hud .barf{fill:#ff8a3a}
+#hudMain,#hudCtx,#leader{transition:opacity .16s, transform .16s}
+#hudMain.off{opacity:0;transform:translateX(-10px)}
+#hudCtx.off{opacity:0}
+#leader.off{opacity:0}
+.gr circle{fill:none;stroke-width:1.5}
+.gr .t{stroke:rgba(242,226,189,.2)}
+.gr .a{stroke:#ff8a3a}
+.gr .f{fill:#ff8a3a;stroke:none}
+#xh{transition:transform .18s}
+@media (prefers-reduced-motion: reduce){ #rig,#hudMain,#hudCtx,#leader,#xh{transition:none} }
+</style>
+<div class="wrap">
+  <div class="stage">
+    <svg class="view" id="view" viewBox="0 0 1280 720" preserveAspectRatio="xMidYMid meet" aria-label="1인칭 조준 화면 목업">
+      <defs>
+        <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0b1118"/><stop offset=".55" stop-color="#121b24"/><stop offset="1" stop-color="#06090c"/></linearGradient>
+        <linearGradient id="band" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#8f969e"/><stop offset=".5" stop-color="#e3e6ea"/><stop offset="1" stop-color="#9aa1a9"/></linearGradient>
+        <filter id="glow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="2.2" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+      </defs>
+      <!-- environment (simple blockout so the HUD has something to sit over) -->
+      <rect width="1280" height="720" fill="url(#sky)"/>
+      <g fill="#0d141b" stroke="#1a242e">
+        <rect x="80" y="210" width="190" height="300"/><rect x="300" y="260" width="120" height="250"/>
+        <rect x="860" y="180" width="160" height="330"/><rect x="1060" y="240" width="200" height="270"/>
+        <rect x="520" y="330" width="240" height="180"/>
+      </g>
+      <rect x="0" y="510" width="1280" height="210" fill="#080c10"/>
+      <line x1="0" y1="510" x2="1280" y2="510" stroke="#1a242e"/>
+      <!-- target silhouette -->
+      <g id="tgt" fill="none" stroke="#ff2a3c" stroke-width="1.2" opacity=".0">
+        <circle cx="640" cy="318" r="11"/><path d="M626 332 h28 l6 60 h-40 z"/>
+      </g>
+      <!-- crosshair -->
+      <g id="xh" stroke="rgba(242,226,189,.75)" stroke-width="1.5" style="transform-origin:640px 360px">
+        <line x1="640" y1="344" x2="640" y2="352"/><line x1="640" y1="368" x2="640" y2="376"/>
+        <line x1="624" y1="360" x2="632" y2="360"/><line x1="648" y1="360" x2="656" y2="360"/>
+        <circle cx="640" cy="360" r="1.2" fill="rgba(242,226,189,.9)" stroke="none"/>
+      </g>
+
+      <!-- right arm rig: origin = wrist; arm runs to the lower right -->
+      <g id="rig" style="transform:translate(1000px,600px)">
+        <!-- gun -->
+        <g fill="#141a20" stroke="#232c35">
+          <path d="M-20 -62 L-262 -162 L-270 -142 L-248 -128 L-40 -20 Z"/>
+          <path d="M-90 -62 L-120 -48 L-96 10 L-66 -6 Z"/>
+          <rect x="-236" y="-166" width="56" height="9" transform="rotate(22 -208 -162)" fill="#0f1418"/>
+        </g>
+        <!-- forearm (sleeve) -->
+        <path d="M18 -32 L440 220 L390 300 L-22 34 Z" fill="#1b2128" stroke="#262f38"/>
+        <!-- glove -->
+        <ellipse cx="-30" cy="-22" rx="52" ry="36" transform="rotate(28 -30 -22)" fill="#22282f" stroke="#2c353f"/>
+        <!-- bracelet: white band across the wrist, three red LED lines run around it -->
+        <g transform="translate(62 38) rotate(31)">
+          <rect x="-22" y="-46" width="44" height="92" rx="6" fill="url(#band)" stroke="#11161b" stroke-width="2"/>
+          <g filter="url(#glow)" stroke-linecap="round" stroke-width="3">
+            <line id="ledA" x1="-11" y1="-38" x2="-11" y2="38" stroke="#ff2a3c"/>
+            <line id="ledB" x1="0"   y1="-38" x2="0"   y2="38" stroke="#ff2a3c"/>
+            <line id="ledC" x1="11"  y1="-38" x2="11"  y2="38" stroke="#ff2a3c"/>
+          </g>
+        </g>
+
+        <!-- leader from bracelet to HUD -->
+        <polyline id="leader" class="off" points="86,10 112,-34 126,-34" fill="none" stroke="rgba(242,226,189,.45)" stroke-width="1"/>
+
+        <!-- HUD, to the right of the wrist -->
+        <g class="hud" transform="translate(130 -150)">
+          <g id="hudMain" class="off">
+            <text id="ammo" class="acc" x="0" y="34" font-size="38">24</text>
+            <text id="mag" x="58" y="16" font-size="12">×3</text>
+            <text id="rnd" class="dim" x="58" y="33" font-size="12">STD</text>
+            <line class="hair" x1="0" y1="46" x2="124" y2="46"/>
+            <!-- drone: ammo pips · battery -->
+            <g id="dAmmo" transform="translate(0 60)"></g>
+            <rect class="trk" x="34" y="57" width="64" height="2"/>
+            <rect id="batt" class="barf" x="34" y="57" width="48" height="2"/>
+            <text id="battT" x="124" y="62" font-size="11" text-anchor="end">76</text>
+            <!-- marks · gear -->
+            <g id="marks" transform="translate(0 80)"></g>
+            <g id="gear" class="gr" transform="translate(70 80)"></g>
+          </g>
+          <g id="hudCtx" class="off" transform="translate(0 102)">
+            <text id="ctxT" x="0" y="0" font-size="11"></text>
+            <text id="ctxP" class="acc" x="124" y="0" font-size="11" text-anchor="end"></text>
+            <rect class="trk" x="0" y="6" width="124" height="1.5"/>
+            <rect id="ctxB" class="barf" x="0" y="6" width="0" height="1.5"/>
+          </g>
+        </g>
+      </g>
+    </svg>
+    <div class="tag" id="state">HIP</div>
+  </div>
+
+  <aside class="rail">
+    <h1>팔찌 HUD · 미니멀</h1>
+    <p>조준할 때만 오른쪽 손목 옆에 작게 떠요. 화면을 우클릭하고 있거나 아래 조준 버튼을 누르면 조준, 조준 중 좌클릭은 사격입니다. 상호작용·해킹·스캔은 조준하지 않을 때도 아래 한 줄로만 표시돼요.</p>
+
+    <div class="lab">조작</div>
+    <div class="row">
+      <button id="bAim" aria-pressed="false">조준<kbd>RMB</kbd></button>
+      <button id="bFire">사격<kbd>LMB</kbd></button>
+      <button id="bReload">재장전<kbd>R</kbd></button>
+      <button id="bType">탄종<kbd>T</kbd></button>
+    </div>
+    <div class="row">
+      <button id="bMark">드론 마킹<kbd>F</kbd></button>
+      <button id="bDrone">드론 사격<kbd>G</kbd></button>
+    </div>
+    <div class="row">
+      <button data-g="0">그래플<kbd>1</kbd></button>
+      <button data-g="1">태깅<kbd>2</kbd></button>
+      <button data-g="2">실드<kbd>3</kbd></button>
+    </div>
+
+    <div class="lab">손 동작</div>
+    <div class="row" id="ctxBtns">
+      <button data-c="" aria-pressed="true">없음</button>
+      <button data-c="interact" aria-pressed="false">상호작용</button>
+      <button data-c="hack" aria-pressed="false">해킹</button>
+      <button data-c="scan" aria-pressed="false">스캔</button>
+    </div>
+
+    <div class="lab">읽는 법</div>
+    <div class="seq">
+      <span>24</span><span>잔탄 (10발 이하 레드, 재장전 중 --)</span>
+      <span>×3</span><span>예비 탄창</span>
+      <span>STD</span><span>탄종 STD / AP / EMP</span>
+      <span>◆◆ ━ 76</span><span>드론 탄약 · 배터리</span>
+      <span>◆◆◇</span><span>드론 마킹 수</span>
+      <span>● ● ◔</span><span>기어 그래플·태깅·실드 (채워지면 준비)</span>
+      <span>SCAN 62</span><span>상호작용·해킹·스캔 진행도</span>
+      <span>팔찌 LED</span><span>잔탄 · 드론 배터리 · 기어 준비</span>
+    </div>
+  </aside>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const NS = 'http://www.w3.org/2000/svg';
+const S = { aim:false, ammo:24, max:30, mags:3, type:0, reload:0, dAmmo:2, dMax:2, batt:76, mark:2, mMax:3, ctx:'', prog:0 };
+const TYPES = ['STD','AP','EMP'];
+const GEAR = [{cd:8, left:0}, {cd:5, left:2.4}, {cd:14, left:0}];
+const CTX = { interact:['DOOR', 1.6], hack:['HACK', 3.2], scan:['SCAN', 2.4] };
+const RIG = { hip:'translate(1000px,600px)', aim:'translate(930px,560px)' };
+const R = 4.5, C = 2*Math.PI*R;
+
+const el = (tag, at) => { const e = document.createElementNS(NS, tag); for (const k in at) e.setAttribute(k, at[k]); return e; };
+const diamond = (x, on) => el('path', { d:`M${x} -4 L${x+4} 0 L${x} 4 L${x-4} 0 Z`, fill: on ? '#ff8a3a' : 'none', stroke: on ? '#ff8a3a' : 'rgba(242,226,189,.5)', 'stroke-width':1 });
+function pips(g, n, max){ g.replaceChildren(...Array.from({length:max}, (_, i) => diamond(4 + i*11, i < n))); }
+
+// gear rings
+$('gear').replaceChildren(...GEAR.map((_, i) => { const g = el('g', {transform:`translate(${8 + i*18} 0)`});
+  g.append(el('circle', {class:'t', r:R}), el('circle', {class:'a', r:R, 'stroke-dasharray':C, transform:'rotate(-90)'}), el('circle', {class:'f', r:2})); return g; }));
+
+function render(){
+  const a = $('ammo'), low = S.ammo <= 10;
+  a.textContent = S.reload > 0 ? '--' : String(S.ammo).padStart(2, '0');
+  a.setAttribute('class', low && S.reload <= 0 ? 'low' : 'acc');
+  $('mag').textContent = '×' + S.mags;
+  $('rnd').textContent = TYPES[S.type];
+  $('rnd').setAttribute('class', S.type ? 'acc' : 'dim');
+  pips($('dAmmo'), S.dAmmo, S.dMax);
+  pips($('marks'), S.mark, S.mMax);
+  $('batt').setAttribute('width', 64 * S.batt / 100);
+  $('batt').style.fill = S.batt <= 20 ? '#ff2a3c' : '';
+  $('battT').textContent = Math.round(S.batt);
+  $('tgt').setAttribute('opacity', S.aim && S.mark > 0 ? .85 : 0);
+  // bracelet LEDs: line length = value
+  const led = (id, k) => { const h = 76 * Math.max(0, Math.min(1, k)); $(id).setAttribute('y1', 38 - h); $(id).setAttribute('opacity', k > 0 ? 1 : .15); };
+  led('ledA', S.ammo / S.max); led('ledB', S.batt / 100);
+}
+
+function setAim(on){
+  S.aim = on;
+  $('rig').style.transform = on ? RIG.aim : RIG.hip;
+  $('hudMain').classList.toggle('off', !on);
+  $('xh').style.transform = on ? 'scale(.6)' : 'scale(1)';
+  $('bAim').setAttribute('aria-pressed', String(on));
+  $('state').textContent = on ? 'AIM' : 'HIP';
+  render();
+}
+function fire(){ if (S.reload > 0 || S.ammo <= 0) return; S.ammo--; render(); }
+function reload(){ if (S.reload > 0 || S.mags <= 0 || S.ammo === S.max) return; S.reload = 1.2; S.mags--; render(); }
+function cycleType(){ S.type = (S.type + 1) % TYPES.length; render(); }
+function mark(){ S.mark = S.mark >= S.mMax ? 0 : S.mark + 1; render(); }
+function droneFire(){ if (S.dAmmo > 0){ S.dAmmo--; S.batt = Math.max(0, S.batt - 6); } else S.dAmmo = S.dMax; render(); }
+function gear(i){ if (GEAR[i].left <= 0) GEAR[i].left = GEAR[i].cd; }
+function setCtx(c){ S.ctx = c; S.prog = 0; document.querySelectorAll('#ctxBtns button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.c === c))); }
+
+// input
+const view = $('view');
+view.addEventListener('contextmenu', e => e.preventDefault());
+view.addEventListener('pointerdown', e => { if (e.button === 2) setAim(true); else if (e.button === 0 && S.aim) fire(); });
+window.addEventListener('pointerup', e => { if (e.button === 2) setAim(false); });
+$('bAim').onclick = () => setAim(!S.aim);
+$('bFire').onclick = fire; $('bReload').onclick = reload; $('bType').onclick = cycleType;
+$('bMark').onclick = mark; $('bDrone').onclick = droneFire;
+document.querySelectorAll('[data-g]').forEach(b => b.onclick = () => gear(+b.dataset.g));
+document.querySelectorAll('[data-c]').forEach(b => b.onclick = () => setCtx(b.dataset.c));
+window.addEventListener('keydown', e => { const k = e.key.toLowerCase();
+  if (k === 'r') reload(); else if (k === 't') cycleType(); else if (k === 'f') mark(); else if (k === 'g') droneFire();
+  else if ('123'.includes(k) && k) gear(+k - 1); });
+
+let last = performance.now();
+function frame(now){
+  const dt = Math.min(0.1, (now - last) / 1000); last = now;
+  if (S.reload > 0){ S.reload -= dt; if (S.reload <= 0) S.ammo = S.max; render(); }
+  // gear rings + third LED
+  let ready = 0;
+  [...$('gear').children].forEach((g, i) => { const G = GEAR[i]; G.left = Math.max(0, G.left - dt); const k = 1 - G.left / G.cd;
+    g.children[1].setAttribute('stroke-dashoffset', C * (1 - k)); g.children[2].setAttribute('opacity', G.left === 0 ? 1 : 0); if (G.left === 0) ready++; });
+  const h = 76 * ready / GEAR.length; $('ledC').setAttribute('y1', 38 - h); $('ledC').setAttribute('opacity', ready ? 1 : .15);
+  // context line (interact / hack / scan): shown whether aiming or not, loops after a short hold
+  const c = CTX[S.ctx];
+  $('hudCtx').classList.toggle('off', !c);
+  $('leader').classList.toggle('off', !(S.aim || c));
+  if (c){ S.prog += dt / c[1]; if (S.prog > 1.5) S.prog = 0; const p = Math.min(1, S.prog);
+    $('ctxT').textContent = p < 1 ? c[0] : c[0] + ' OK'; $('ctxP').textContent = Math.floor(p*100); $('ctxB').setAttribute('width', 124 * p); }
+  requestAnimationFrame(frame);
+}
+render(); setAim(false); requestAnimationFrame(frame);
+</script>
