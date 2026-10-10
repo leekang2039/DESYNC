@@ -1,0 +1,93 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wrist Arc HUD</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600&family=Share+Tech+Mono&display=swap">
+<style>
+/* v4 (built from src/wrist_hud_v4.js — three.js is inlined, no CDN needed) */
+:root{
+  --bg:#05080b; --panel:#0b1015; --line:#18222b; --fg:#c9d3dd; --muted:#7d8a97; --head:#eef6f4; --holo:#78ECD6;
+  --f-display:'Chakra Petch',system-ui,sans-serif; --f-mono:'Share Tech Mono',ui-monospace,monospace;
+  color-scheme:dark;
+}
+html,body{height:100%}
+body{background:var(--bg);color:var(--fg);font-family:var(--f-display);margin:0}
+.wrap{display:flex;flex-wrap:wrap;min-height:100%;box-sizing:border-box}
+.stage{flex:999 1 560px;min-width:0;position:relative;min-height:62vh;background:#05080b}
+#c{position:absolute;inset:0;width:100%;height:100%;display:block;cursor:crosshair;touch-action:none}
+.tag{position:absolute;left:16px;top:14px;font:400 11px var(--f-mono);letter-spacing:.14em;color:var(--muted);pointer-events:none}
+#fallback{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:24px;text-align:center;color:var(--fg);font-size:14px}
+.xh{position:absolute;left:50%;top:50%;width:18px;height:18px;margin:-9px 0 0 -9px;pointer-events:none;transition:transform .15s,opacity .15s}
+.xh::before,.xh::after{content:"";position:absolute;background:rgba(184,255,240,.8)}
+.xh::before{left:8px;top:0;width:2px;height:18px;clip-path:polygon(0 0,100% 0,100% 30%,0 30%,0 70%,100% 70%,100% 100%,0 100%)}
+.xh::after{top:8px;left:0;height:2px;width:18px;clip-path:polygon(0 0,30% 0,30% 100%,0 100%,0 0,70% 0,100% 0,100% 100%,70% 100%)}
+.xh.ads{transform:scale(.55);opacity:.7}
+.rail{flex:1 1 300px;box-sizing:border-box;padding:24px 16px 28px;display:flex;flex-direction:column;gap:18px;border-left:1px solid var(--line);background:var(--panel)}
+h1{margin:0;font-size:24px;font-weight:600;color:var(--head);text-wrap:balance}
+p{margin:0;font-size:13px;line-height:1.6;color:#9aa6b2;max-width:46ch}
+.lab{font:400 11px var(--f-mono);letter-spacing:.14em;color:var(--muted);text-transform:uppercase}
+.row{display:flex;flex-wrap:wrap;gap:8px}
+button{appearance:none;border:1px solid #24313a;background:#0e151b;color:var(--fg);font:500 13px var(--f-display);padding:0 14px;height:44px;min-width:44px;cursor:pointer}
+button:hover{border-color:var(--holo);color:#fff}
+button:focus-visible{outline:2px solid var(--holo);outline-offset:2px}
+button[aria-pressed="true"]{border-color:var(--holo);color:var(--holo)}
+kbd{font:400 11px var(--f-mono);color:var(--muted);margin-left:6px}
+.seq{display:grid;grid-template-columns:auto 1fr;gap:6px 12px;font-size:12.5px}
+.seq span:nth-child(odd){font-family:var(--f-mono);color:var(--holo);white-space:nowrap}
+#err{color:#ff8a80;font-size:12px}
+@media (min-width: 900px){ .wrap{height:100vh;flex-wrap:nowrap} .stage{min-height:0} .rail{overflow-y:auto;max-width:380px} }
+</style>
+<div class="wrap">
+  <div class="stage">
+    <canvas id="c" aria-label="1인칭 팔찌 HUD 미리보기"></canvas>
+    <div class="xh" id="xh"></div>
+    <div class="tag" id="state">HIP</div>
+    <div id="fallback" hidden></div>
+  </div>
+  <aside class="rail">
+    <h1>팔찌 아크 HUD</h1>
+    <p>조준하면 손목 오른쪽 위에 얇은 호 두 줄과 잔탄 숫자만 떠요. 문 열기·해킹·스캔 키를 누르면 손목이 올라오고 팔찌 이음새가 하늘색으로 바뀌면서, 팔찌 둘레에 동작별 링 UI와 빔/스캔 이펙트가 나옵니다.</p>
+    <p style="font-size:12px">화면 우클릭 유지 = 조준, 조준 중 좌클릭 = 사격, 마우스 이동 = 시선.</p>
+
+    <div class="lab">전투</div>
+    <div class="row">
+      <button id="bAim" aria-pressed="false">조준<kbd>RMB</kbd></button>
+      <button id="bFire">사격<kbd>LMB</kbd></button>
+      <button id="bReload">재장전<kbd>R</kbd></button>
+      <button id="bType">탄종<kbd>T</kbd></button>
+    </div>
+    <div class="row">
+      <button id="bMark">드론 마킹<kbd>F</kbd></button>
+      <button id="bDrone">드론 사격<kbd>G</kbd></button>
+      <button data-g="0">그래플<kbd>1</kbd></button>
+      <button data-g="1">태깅<kbd>2</kbd></button>
+      <button data-g="2">실드<kbd>3</kbd></button>
+    </div>
+
+    <div class="lab">팔찌 동작</div>
+    <div class="row">
+      <button id="bDoor">문 열기<kbd>E</kbd></button>
+      <button id="bHack">해킹<kbd>H</kbd></button>
+      <button id="bScan">스캔<kbd>Q</kbd></button>
+    </div>
+
+    <div class="lab">조준 HUD</div>
+    <div class="seq">
+      <span>안쪽 호</span><span>잔탄 눈금 30칸 · 10발 이하 깜빡임</span>
+      <span>바깥 호</span><span>드론 배터리 실선 · 끝에 드론 탄 ◆◆</span>
+      <span>점 · 눈금</span><span>기어 3개(차오르면 준비) · 마킹 3칸</span>
+      <span>24 ×3 STD</span><span>잔탄 · 예비 탄창 · 탄종</span>
+    </div>
+    <div class="lab">팔찌 동작 UI</div>
+    <div class="seq">
+      <span>문 열기</span><span>팔찌 둘레 링이 차오르고 잠금 4조각이 돌며 풀림 → 빔 → 문 열림</span>
+      <span>해킹</span><span>팔찌 둘레 3중 링이 틈을 하나씩 맞춤 → 단말 점등</span>
+      <span>스캔</span><span>팔찌에서 스캔 콘 발사, 팔찌 옆에 성분 판독</span>
+    </div>
+    <div id="err" role="status"></div>
+  </aside>
+</div>
+<script>
+/*BUNDLE*/
+</script>
