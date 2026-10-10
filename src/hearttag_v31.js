@@ -301,7 +301,7 @@ const composer = new EffectComposer(renderer); composer.addPass(new RenderPass(s
 const bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.6, 0.3, 1.0); composer.addPass(bloom); composer.addPass(new OutputPass());
 function resize(){ const w = stage.clientWidth, h = stage.clientHeight; renderer.setSize(w, h, false); composer.setSize(w, h); bloom.setSize(w, h); camera.aspect = w/h; camera.updateProjectionMatrix(); }
 new ResizeObserver(resize).observe(stage); resize();
-const VIEWS = {q34: [[0, 15.5, 19.5], [0, 0.2, 0.5]], top: [[0, 28, 0.01], [0, 0, 0]], low: [[0, 3.4, 19], [0, 0.9, 0]], core: [[0, 6.8, 5.2], [0, 0.8, 0]]};
+const VIEWS = {q34: [[0, 15.5, 19.5], [0, 0.2, 0.5]], top: [[0, 28, 0.01], [0, 0, 0]], low: [[0, 4.2, 25], [0, 0.6, 0]], core: [[0, 6.8, 5.2], [0, 0.8, 0]]};
 let camTween = null;
 function setView(v){ S.view = v; const [pos, tgt] = VIEWS[v]; const fit = camera.aspect < 1 ? 1.65 : 1;
   camTween = {t: 0, p0: camera.position.clone(), t0: controls.target.clone(), p1: new THREE.Vector3(...pos).multiplyScalar(v === 'core' ? Math.sqrt(fit) : fit), t1: new THREE.Vector3(...tgt)}; syncUI(); }
