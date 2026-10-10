@@ -1,0 +1,109 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Heart Tag Core Reactor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600&family=Share+Tech+Mono&display=swap">
+<style>
+/* built from src/hearttag_v31.js — three.js is inlined, no CDN needed */
+:root{
+  --bg:#15181c; --panel:#0e1115; --line:#232a32; --fg:#cdd4dc; --muted:#808b97; --head:#f1eee8; --red:#ff4a3a;
+  --f-display:'Chakra Petch',system-ui,sans-serif; --f-mono:'Share Tech Mono',ui-monospace,monospace;
+  color-scheme:dark;
+}
+[hidden]{display:none!important}
+html,body{height:100%}
+body{background:var(--bg);color:var(--fg);font-family:var(--f-display);margin:0}
+.wrap{display:flex;flex-wrap:wrap;min-height:100%;box-sizing:border-box}
+.stage{flex:999 1 560px;min-width:0;position:relative;min-height:62vh;background:var(--bg)}
+#c{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none}
+#state{position:absolute;left:16px;top:14px;font:400 12px var(--f-mono);letter-spacing:.16em;color:var(--red);pointer-events:none}
+#fallback{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:24px;text-align:center;color:var(--fg);font-size:14px}
+.rail{flex:1 1 300px;box-sizing:border-box;padding:24px 16px 28px;display:flex;flex-direction:column;gap:16px;border-left:1px solid var(--line);background:var(--panel)}
+h1{margin:0;font-size:22px;font-weight:600;color:var(--head);text-wrap:balance}
+p{margin:0;font-size:13px;line-height:1.6;color:#9aa6b2;max-width:46ch}
+.lab{font:400 11px var(--f-mono);letter-spacing:.14em;color:var(--muted);text-transform:uppercase}
+.row{display:flex;flex-wrap:wrap;gap:8px}
+button{appearance:none;border:1px solid #2c343d;background:#13181e;color:var(--fg);font:500 13px var(--f-display);padding:0 12px;height:44px;min-width:44px;cursor:pointer}
+button:hover{border-color:var(--red);color:#fff}
+button:focus-visible,input:focus-visible{outline:2px solid var(--red);outline-offset:2px}
+button[aria-pressed="true"]{border-color:var(--red);color:var(--red)}
+kbd{font:400 11px var(--f-mono);color:var(--muted);margin-left:6px}
+input[type=range]{width:100%;accent-color:var(--red);height:28px}
+.sl{display:grid;grid-template-columns:5.5em 1fr 3em;align-items:center;gap:8px;font-size:12.5px}
+.sl output{font:400 12px var(--f-mono);color:var(--muted);text-align:right}
+.seq{display:grid;grid-template-columns:auto 1fr;gap:6px 12px;font-size:12.5px;line-height:1.5}
+.seq span:nth-child(odd){font-family:var(--f-mono);color:var(--red);white-space:nowrap}
+#err{color:#ff8a80;font-size:12px}
+#steps{margin:0;padding-left:20px;font-size:12.5px;line-height:1.8;color:var(--muted)}
+#steps li.on{color:var(--red)}
+.dock{position:absolute;left:0;right:0;bottom:0;display:none;gap:6px;padding:16px 12px calc(10px + env(safe-area-inset-bottom));overflow-x:auto;background:linear-gradient(transparent,rgba(14,17,21,.9))}
+.dock button{flex:0 0 auto;background:rgba(19,24,30,.88)}
+@media (max-width: 899px){ .stage{flex-basis:100%;height:100svh;min-height:0} .dock{display:flex} #state{top:max(14px,env(safe-area-inset-top))} }
+@media (min-width: 900px){ .wrap{height:100vh;flex-wrap:nowrap} .stage{min-height:0} .rail{overflow-y:auto;max-width:390px} }
+</style>
+<div class="wrap">
+  <div class="stage">
+    <canvas id="c" aria-label="Heart Tag 코어 리액터 3D 미리보기. 드래그로 회전, 휠로 확대"></canvas>
+    <div id="state">HEART TAG · IDLE</div>
+    <div id="fallback" hidden></div>
+    <div class="dock" aria-label="터치 조작">
+      <button data-a="toggle">활성화/대기</button>
+      <button data-a="pause" aria-pressed="false">정지</button>
+      <button data-a="slow" aria-pressed="false">0.25×</button>
+      <button data-view="q34" aria-pressed="true">3/4</button>
+      <button data-view="core" aria-pressed="false">코어</button>
+      <button data-view="low" aria-pressed="false">측면</button>
+    </div>
+  </div>
+  <aside class="rail">
+    <h1>Heart Tag · 코어 리액터 v31</h1>
+    <p>레퍼런스 시트 배치에 맞춰 다시 만들었어요. 바깥 회색 블록 링(회전), 클램프 채널, 가운데 블록 링(역회전), 레드 아크가 있는 블랙 링, 십자 + 대각 방사 모듈 8개, 가운데가 들어간 레드 타깃 코어 순서예요. 전개는 02 ACTIVATION까지만 진행돼요.</p>
+
+    <div class="lab">작동</div>
+    <div class="row">
+      <button data-a="deploy" aria-pressed="false">활성화<kbd>D</kbd></button>
+      <button data-a="fold" aria-pressed="false">대기로 복귀<kbd>F</kbd></button>
+      <button data-a="pause">정지<kbd>Space</kbd></button>
+      <button data-a="slow" aria-pressed="false">0.25×<kbd>S</kbd></button>
+    </div>
+    <div class="row">
+      <button data-phase="IDLE">01 IDLE</button>
+      <button data-phase="ACTIVATION">02 ACTIVATION</button>
+    </div>
+    <label class="lab" for="scrub">타임라인 (아무 프레임에서 멈춤 · 재개)</label>
+    <input id="scrub" type="range" min="0" max="1000" value="0">
+    <ol id="steps">
+      <li>코어 에너지 상승</li><li>외곽 패널 분리</li><li>내부 모듈 전개</li><li>에너지 라인 활성화</li><li>코어 상승 및 고정</li>
+    </ol>
+
+    <div class="lab">독립 회전 (음수 = 역방향)</div>
+    <div class="row">
+      <button data-spin="core" aria-pressed="true">코어</button>
+      <button data-spin="coreIn" aria-pressed="true">코어 내부 링</button>
+      <button data-spin="inner" aria-pressed="true">가운데 링</button>
+      <button data-spin="outer" aria-pressed="true">외곽 링</button>
+    </div>
+    <div class="sl"><label for="k_core">코어</label><input id="k_core" data-k="core" type="range" min="-3" max="3" step="0.1" value="1"><output id="v_core">1.0×</output></div>
+    <div class="sl"><label for="k_coreIn">코어 내부</label><input id="k_coreIn" data-k="coreIn" type="range" min="-3" max="3" step="0.1" value="1"><output id="v_coreIn">1.0×</output></div>
+    <div class="sl"><label for="k_inner">가운데 링</label><input id="k_inner" data-k="inner" type="range" min="-3" max="3" step="0.1" value="1"><output id="v_inner">1.0×</output></div>
+    <div class="sl"><label for="k_outer">외곽 링</label><input id="k_outer" data-k="outer" type="range" min="-3" max="3" step="0.1" value="1"><output id="v_outer">1.0×</output></div>
+
+    <div class="lab">시점</div>
+    <div class="row">
+      <button data-view="q34" aria-pressed="true">3/4</button><button data-view="top">탑뷰</button><button data-view="low">낮은 측면</button><button data-view="core">코어 확대</button>
+    </div>
+
+    <div class="lab">구조</div>
+    <div class="seq">
+      <span>외곽 링</span><span>회색 블록 20개 + 블랙 이음새 스페이서. 활성화하면 블록마다 피스톤 2개로 들리고 바깥으로 밀려나면서 레지 아래 레드 링이 드러나요. 안쪽에는 브론즈 클램프 채널, 레드 대시, 자가수복 라인(흐름 창 8개)</span>
+      <span>가운데 링</span><span>블록 16개, 역회전. 블록이 번갈아 들리고 이음새에 브론즈 실린더</span>
+      <span>코어 프레임</span><span>고정. 레드 아크 블랙 링, 안쪽 회색 링, 십자 모듈 4개 + 대각 모듈 4개가 레일을 따라 바깥으로 밀려나면서 아래의 레드 방사 채널이 켜져요</span>
+      <span>코어</span><span>오목한 레드 타깃(링 2개 + 십자선 + 렌즈)이 리프트 램 3개로 올라온 뒤 잠금 핀 4개로 고정돼요. 로터와 내부 틱 링이 각각 회전</span>
+    </div>
+    <div id="err" role="status"></div>
+  </aside>
+</div>
+<script>
+/*BUNDLE*/
+</script>
