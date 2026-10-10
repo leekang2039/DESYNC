@@ -128,7 +128,8 @@ for (let i=0;i<NS;i++){ const pv = new THREE.Group(); pv.rotation.z = i/NS*Math.
 // ---------------- wrist display: one camera-facing canvas centred on the cuff ----------------
 // Both the aim HUD and the door / hack / scan read-outs are drawn here, so everything comes off the bracelet.
 const N = 1024, C = N/2, PLANE = 0.4;              // canvas px, centre, plane size in rig units (≈2560 px / unit)
-const wc = document.createElement('canvas'); wc.width = wc.height = N; const g = wc.getContext('2d');
+const wc = document.createElement('canvas'); wc.width = wc.height = N; const gMain = wc.getContext('2d'); let g = gMain;
+const ac = document.createElement('canvas'); ac.width = ac.height = N; const gAct = ac.getContext('2d');   // actions draw here, then fold in
 const wTex = new THREE.CanvasTexture(wc); wTex.colorSpace = THREE.SRGBColorSpace; wTex.anisotropy = 4;
 const wrist = new THREE.Mesh(new THREE.PlaneGeometry(PLANE, PLANE), new THREE.MeshBasicMaterial({map: wTex, transparent: true, depthTest: false, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false}));
 wrist.renderOrder = 10; wrist.position.z = 0.065; rig.add(wrist);
@@ -148,8 +149,9 @@ function text(s, x, y, size, col, align='left', glow=false){ g.font = `400 ${siz
 const S = {aim: false, ammo: 24, max: 30, mags: 3, type: 0, reload: 0, dAmmo: 2, dMax: 2, batt: 76, mark: 2, recoil: 0, flash: 0, glitch: 0};
 const TYPES = ['STD', 'AP', 'EMP'];
 const GEAR = [{cd: 8, left: 0, ready: 0}, {cd: 5, left: 0, ready: 0}, {cd: 14, left: 0, ready: 0}];
-const ACT = {kind: '', t: 0};                       // active bracelet action: 'door' | 'hack' | 'scan'
-const ACT_LEN = {door: 1.1, hack: 1.5, scan: 1.4};   // repeated all game long: short and out of the way
+const ACT = {kind: '', t: 0, cached: false};                       // active bracelet action: 'door' | 'hack' | 'scan'
+const ACT_LEN = {door: 2.6, hack: 3.4, scan: 3.6}, ACT_LEN_CACHED = {door: 0.9, hack: 0.9, scan: 0.9};
+const KNOWN = new Set();                            // targets decoded once: later uses only confirm the cached key
 let hudK = 0, aimK = 0, actK = 0, doorOpen = 0, doorHold = 0, hackLit = 0;
 
 // ---- shared arc language: segmented band + fading hairline with end caps + caret ----
@@ -231,9 +233,11 @@ function drawDecode(dec, x, y, size, al=1){
     [[x - 6, y - h, 1, 1], [x + w + 4, y - h, -1, 1], [x - 6, y + h, 1, -1], [x + w + 4, y + h, -1, -1]].forEach(([bx, by, sx, sy]) => {
       g.beginPath(); g.moveTo(bx, by + sy*8); g.lineTo(bx, by); g.lineTo(bx + sx*8, by); g.stroke(); }); } }
 
-// ---- aim HUD: the bracelet as a projector — rays fan out to a light-sheet arc; its lit edge is the magazine,
-//      the count is a scan-lined hologram. (After the diegetic projections in Dead Space and the clean light-line UI of Oblivion.)
-const A0 = 68, A1 = 0, R_IN = 158, R_EDGE = 212, R_SCALE = 224;
+// ---- aim HUD: the fixed frame is the art — the bracelet's own chamfered armour plates, redrawn as a hologram,
+//      deploy off the cuff one by one and lock into an arc; light inside them is the magazine, the keystone plate holds the count.
+const PLATES = [ {a0: 70, a1: 59, r0: 180, r1: 206}, {a0: 57, a1: 44, r0: 180, r1: 212}, {a0: 42, a1: 30, r0: 180, r1: 209},
+                 {a0: 28, a1: 17, r0: 180, r1: 204}, {a0: 14, a1: -19, r0: 176, r1: 300, key: true} ];
+const AMMO_A0 = 70, AMMO_A1 = 17;
 const PEEK = {drone: 0, mark: 0};
 const AIMD = {t0: 0, rl: false, pulse: -9};
 const countDec = new Decoder('24', {base: 0.04, span: 0.22}), magDec = new Decoder('×3', {base: 0.06, span: 0.25});
@@ -246,89 +250,116 @@ function drawRoller(x, y, size, al){ const n = TYPES.length, p = roll.pos, movin
     g.save(); g.translate(x, y + Math.sin(ang)*size*1.25); g.scale(1, cs); g.globalAlpha = al*cs;
     spaced(3); text(TYPES[((k % n) + n) % n], 0, 0, size, Math.abs(d) < 0.5 ? W(1) : E(0.7), 'left', Math.abs(d) < 0.5); spaced(0); g.restore(); }
   g.globalAlpha = 1; }
-function ctxLine(dec, str, show, a, al){ if (!show){ dec.cur = dec.prev = ''; return; } dec.set(str); const [x, y] = P(R_SCALE + 14, a);
+function ctxLine(dec, str, show, a, al){ if (!show){ dec.cur = dec.prev = ''; return; } dec.set(str); const [x, y] = P(216, a);
   g.globalAlpha = al; drawDecode(dec, x, y, 15, al); g.globalAlpha = 1; }
-function sheet(a0, a1, alpha){ if (a0 - a1 < 0.2) return;                 // translucent wedge between the cuff and the edge
-  const gr = g.createRadialGradient(C, C, R_IN, C, C, R_EDGE); gr.addColorStop(0, H(0)); gr.addColorStop(0.75, H(alpha*0.45)); gr.addColorStop(1, H(alpha));
-  g.fillStyle = gr; g.beginPath(); g.arc(C, C, R_EDGE, -a0*D2R, -a1*D2R, false); g.arc(C, C, R_IN, -a1*D2R, -a0*D2R, true); g.closePath(); g.fill(); }
+function platePath(p, dr=0, da=0, inset=0){   // inner edge follows the cuff, outer corners chamfered like the bracelet's armour
+  const r0 = p.r0 + dr + inset, r1 = p.r1 + dr - inset, a0 = p.a0 + da - inset*0.12, a1 = p.a1 + da + inset*0.12, cut = p.key ? 18 : 7, cd = cut/r1/D2R;
+  g.beginPath(); g.moveTo(...P(r0, a0)); g.arc(C, C, r0, -a0*D2R, -a1*D2R, false);
+  g.lineTo(...P(r1 - cut, a1)); g.lineTo(...P(r1, a1 + cd)); g.arc(C, C, r1, -(a1 + cd)*D2R, -(a0 - cd)*D2R, true); g.lineTo(...P(r1 - cut, a0)); g.closePath(); }
 function drawAim(T){
-  const kA = ease(clamp(hudK/0.5)), kT = ease(clamp((hudK - 0.25)/0.5)), rl = S.reload > 0;
-  if (kA <= 0) return;
+  if (hudK <= 0) return;
+  const rl = S.reload > 0;
   if (rl) AIMD.rl = true; else if (AIMD.rl){ AIMD.rl = false; countDec.scramble(); }
-  const low = S.ammo <= 10 && !rl, flick = (low ? 0.6 + 0.4*hash(7, Math.floor(T*12)) : 1)*(0.92 + 0.08*hash(3, Math.floor(T*30)));
-  const open = lerp(A0, A1, kA), frac = rl ? clamp(1 - S.reload/1.4) : S.ammo/S.max, aAmmo = lerp(A0, A1, frac), lit = Math.max(open, aAmmo);
-  g.globalAlpha = flick;
-  // projection: faint rays from the cuff to the edge, a light sheet that is brighter over the remaining magazine
-  for (let k=0;k<=6;k++){ const a = lerp(A0, open, k/6), [x0, y0] = P(R_IN, a), [x1, y1] = P(R_EDGE, a);
-    const gr = g.createLinearGradient(x0, y0, x1, y1); gr.addColorStop(0, H(0)); gr.addColorStop(1, H(0.35));
-    g.strokeStyle = gr; g.lineWidth = 1; g.beginPath(); g.moveTo(x0, y0); g.lineTo(x1, y1); g.stroke(); }
-  sheet(A0, lit, 0.2); sheet(lit, open, 0.06);
-  // the edge: bright over what is left in the magazine, a faint line beyond; a hot point where it ends
-  arc(R_EDGE, A0, open, 1, H(0.3)); arc(R_EDGE, A0, lit, 6, H(0.14)); arc(R_EDGE, A0, lit, 2.4, E(1));
-  if (frac > 0 && kA > 0.98) dot(R_EDGE, aAmmo, 3.4 + S.recoil*2, true, W(1));
-  if (hudK < 1) dot(R_EDGE, open, 4, true, W(1));
-  const ps = T - AIMD.pulse; if (ps < 0.22){ const a = lerp(aAmmo, A0, ps/0.22); arc(R_EDGE, Math.min(A0, a + 6), a - 6, 3, W(1 - ps/0.22)); }   // shot: a glint runs back up the edge
-  // precision scale outside: fine ticks every 2°, labelled every 10°
-  for (let a = A0; a >= open; a -= 2){ const major = Math.round(a) % 10 === 0; tick(R_SCALE, a, major ? 8 : 3, 1, H(major ? 0.6 : 0.3)); }
+  const low = S.ammo <= 10 && !rl, pulse = low ? 0.55 + 0.45*Math.sin(T*9) : 1, shot = clamp(1 - (T - AIMD.pulse)/0.18);
+  const frac = rl ? clamp(1 - S.reload/1.4) : S.ammo/S.max, aLit = lerp(AMMO_A0, AMMO_A1, frac);
+  const dep = PLATES.map((p, i) => ease(clamp((hudK*1.7 - i*0.16)/0.5)));      // deploy: each plate slides out of the cuff and locks
+  // light inside the plates = what is left in the magazine (one continuous glow, no per-round marks)
+  if (dep[3] > 0.01){ g.save();
+    g.beginPath(); PLATES.slice(0, 4).forEach((p, i) => { const dr = -(1 - dep[i])*26, da = (1 - dep[i])*5, r0 = p.r0 + dr + 3, r1 = p.r1 + dr - 3, cut = 7, cd = cut/r1/D2R, a0 = p.a0 + da - 0.36, a1 = p.a1 + da + 0.36;
+      g.moveTo(...P(r0, a0)); g.arc(C, C, r0, -a0*D2R, -a1*D2R, false); g.lineTo(...P(r1 - cut, a1)); g.lineTo(...P(r1, a1 + cd)); g.arc(C, C, r1, -(a1 + cd)*D2R, -(a0 - cd)*D2R, true); g.lineTo(...P(r1 - cut, a0)); g.closePath(); });
+    g.clip();
+    const gr = g.createRadialGradient(C, C, 180, C, C, 212); gr.addColorStop(0, E(0.7*pulse)); gr.addColorStop(1, H(0.2*pulse));
+    g.fillStyle = gr; g.beginPath(); g.moveTo(C, C); g.arc(C, C, 220, -AMMO_A0*D2R, -aLit*D2R, false); g.closePath(); g.fill();
+    if (frac > 0){ g.strokeStyle = W(0.9*pulse); g.lineWidth = 2; g.beginPath(); g.moveTo(...P(180, aLit)); g.lineTo(...P(214, aLit)); g.stroke(); }   // light front
+    g.restore(); }
+  // the plates: bright outline, faint inset line, a notch on the outer edge, rivets at the inner corners
+  PLATES.forEach((p, i) => { const k = dep[i]; if (k <= 0.01) return; const dr = -(1 - k)*26, da = (1 - k)*5;
+    g.globalAlpha = k;
+    const hot = p.key ? shot : 0;
+    platePath(p, dr, da); g.strokeStyle = hot > 0 ? W(0.6 + 0.4*hot) : E(0.9*(p.key ? 1 : pulse)); g.lineWidth = p.key ? 1.6 : 1.4; g.stroke();
+    platePath(p, dr, da, 4); g.strokeStyle = H(0.28); g.lineWidth = 1; g.stroke();
+    if (p.key){ platePath(p, dr, da, 1); g.fillStyle = H(0.05 + 0.12*hot); g.fill(); }
+    const am = (p.a0 + p.a1)/2 + da; tick(p.r1 + dr - 4, am, 8, 1.5, E(0.8));
+    dot(p.r0 + dr + 6, p.a0 + da - 1.5, 1.8, true, E(0.9)); dot(p.r0 + dr + 6, p.a1 + da + 1.5, 1.8, true, E(0.9)); });
   g.globalAlpha = 1;
-  if (kT <= 0) return;
-  // micro labels at the start of the arc
-  g.globalAlpha = kT; { const [x, y] = P(R_SCALE + 10, A0 + 4); spaced(3); text('RND', x, y, 11, E(0.6)); spaced(0); }
-  // the count: hologram digits with a ghost offset and scanlines, decoded where they change
+  const kK = dep[4]; if (kK < 0.3) return;
+  const al = ease(clamp((kK - 0.3)/0.7));
+  // keystone contents: a small label, the hologram count, spare mags, the round-type roller
+  g.globalAlpha = al; { const [x, y] = P(282, 10); spaced(3); text('RND', x, y, 11, E(0.6)); spaced(0); }
   countDec.set(rl ? '--' : String(S.ammo).padStart(2, '0')); magDec.set('×' + S.mags);
-  const [x, y] = P(R_EDGE + 16, A1 - 10), jit = S.recoil*3;
-  g.save(); g.globalAlpha = kT*0.35; drawDecode(countDec, x + 3 + jit, y + 10, 64, 0.35*flick); g.restore();
-  g.globalAlpha = kT; drawDecode(countDec, x - jit*0.5, y + 8, 64, kT*flick);
-  g.globalCompositeOperation = 'destination-out'; g.fillStyle = 'rgba(0,0,0,0.55)';
-  for (let sy = y - 24 + (T*40 % 4); sy < y + 44; sy += 4) g.fillRect(x - 6, sy, 96, 1);
+  const [x, y] = P(206, -1), jit = S.recoil*3;
+  g.save(); g.globalAlpha = al*0.35; drawDecode(countDec, x + 3 + jit, y + 6, 58, 0.35); g.restore();
+  g.globalAlpha = al; drawDecode(countDec, x - jit*0.5, y + 4, 58, al*(low ? pulse : 1));
+  g.globalCompositeOperation = 'destination-out'; g.fillStyle = 'rgba(0,0,0,0.5)';
+  for (let sy = y - 26 + (T*40 % 4); sy < y + 34; sy += 4) g.fillRect(x - 6, sy, 80, 1);
   g.globalCompositeOperation = 'source-over';
-  g.globalAlpha = kT; drawDecode(magDec, x + 84, y - 14, 18, kT);
+  g.globalAlpha = al; drawDecode(magDec, x + 76, y - 18, 18, al);
   roll.target = (() => { let t = S.type + TYPES.length*Math.floor(roll.target/TYPES.length); while (t < roll.target - 1e-6) t += TYPES.length; return t; })();
-  drawRoller(x + 2, y + 52, 21, kT);
-  // contextual lines decode in beside the arc only while they matter
+  drawRoller(x + 4, y + 44, 20, al);
+  // contextual lines decode in beside the plates only while they matter
   const cool = GEAR.map((G, i) => G.left > 0 ? ['GRP', 'TAG', 'SHD'][i] + ' ' + Math.ceil(G.left) + 's' : '').filter(Boolean).join('  ');
-  ctxLine(droneDec, 'P-07 ' + Math.round(S.batt) + '%  RD ' + S.dAmmo, PEEK.drone > 0 || S.batt <= 20, 58, kT*Math.max(clamp(PEEK.drone/0.4), S.batt <= 20 ? 1 : 0));
-  ctxLine(gearDec, cool, !!cool, 46, kT);
-  ctxLine(markDec, 'MARK ' + S.mark + '/3', PEEK.mark > 0, 34, kT*clamp(PEEK.mark/0.4)); }
+  ctxLine(droneDec, 'P-07 ' + Math.round(S.batt) + '%  RD ' + S.dAmmo, PEEK.drone > 0 || S.batt <= 20, 66, al*Math.max(clamp(PEEK.drone/0.4), S.batt <= 20 ? 1 : 0));
+  ctxLine(gearDec, cool, !!cool, 53, al);
+  ctxLine(markDec, 'MARK ' + S.mark + '/3', PEEK.mark > 0, 40, al*clamp(PEEK.mark/0.4)); }
 
 // ---- bracelet actions: tracks freezing into a window on a short arc over the outer side of the wrist ----
 const HEX = '0123456789ABCDEF';
 const B0 = 80, B1 = -12, BM = (B0 + B1)/2;           // short arc (92°) and its window
 const along = k => lerp(B0, B1, k);
 const R_STAT = 286;
-const statDec = new Decoder('', {base: 0.03, span: 0.22});
+const statDec = new Decoder('');
 function statLabel(s){ const [x, y] = P(R_STAT, BM + 9); spaced(4); text(s, x, y, 16, E(0.75)); spaced(0); }
-function statBig(s){ statDec.set(s); const [x, y] = P(R_STAT, BM); drawDecode(statDec, x, y, 30, g.globalAlpha); }
-const subDec = new Decoder('', {base: 0.03, span: 0.2});
-function statSub(s){ subDec.set(s); const [x, y] = P(R_STAT, BM - 7); drawDecode(subDec, x, y + 4, 15, g.globalAlpha); }
+function statBig(s){ statDec.set(s); const [x, y] = P(R_STAT, BM); drawDecode(statDec, x, y, 36, g.globalAlpha); }
+const subDec = new Decoder('', {base: 0.05, span: 0.45});
+function statSub(s){ subDec.set(s); const [x, y] = P(R_STAT, BM - 9); drawDecode(subDec, x, y + 6, 17, g.globalAlpha); }
 // a cipher track: blocks scroll until `locked`, then only the window stays lit
 function cipher(r, t, speed, seed, locked, w=6){ const n = 24, sh = Math.floor(t*speed);
   segBand(r, B0, B1, n, w, j => { const a = along((j + 0.5)/n), f = fall(a, BM, 44), inWin = Math.abs(a - BM) < 5;
     if (locked) return inWin ? W(1) : H(0.1*f);
     return ((j*7 + sh*3 + seed*11) % 5) < 2 ? E(0.15 + 0.6*f) : H(0.06 + 0.06*f); }, 0.3); }
-function drawDoor(t){ const PIN = [0.12, 0.2, 0.28, 0.36], R = [190, 204, 218], fade = clamp(t/0.08)*(1 - clamp((t - 0.8)/0.3));
+function drawDoorFull(t){ const PIN = [0.35, 0.55, 0.75, 0.95], R = [184, 200, 216, 232], fade = 1 - clamp((t - 2.2)/0.4);
   g.globalAlpha = fade;
-  R.forEach((r, i) => { const set = t > PIN[i]; cipher(r, t, 22 + i*6, i, set, 4);
-    const fl = set ? clamp(1 - (t - PIN[i])*6) : 0; if (fl > 0) arc(r, BM + 5, BM - 5, 10, W(0.45*fl)); });
-  windowMarks(BM, 6, 182, 226); hair(232, B0, B1, 0.8);
-  statBig(t < 0.4 ? 'LOCKED' : 'OPEN'); g.globalAlpha = 1; }
-function drawHack(t){ const LOCK = [0.35, 0.6, 0.85], R = [190, 206, 222], fade = clamp(t/0.08)*(1 - clamp((t - 1.15)/0.35));
+  R.forEach((r, i) => { const set = t > PIN[i]; cipher(r, t, 16 + i*6, i, set, 5);
+    const fl = set ? clamp(1 - (t - PIN[i])*4) : 0; if (fl > 0) arc(r, BM + 5, BM - 5, 12, W(0.45*fl)); });
+  windowMarks(BM, 6, 174, 242); hair(250, B0, B1, 1, 8);
+  statLabel('DOOR B-12'); statBig(t < 0.95 ? 'LOCKED' : 'OPEN'); statSub(PIN.filter(p => t > p).length + '/4 PINS'); g.globalAlpha = 1; }
+function drawHackFull(t){ const LOCK = [0.9, 1.6, 2.3], R = [186, 204, 222], fade = 1 - clamp((t - 3.0)/0.4);
   g.globalAlpha = fade;
-  R.forEach((r, i) => { const locked = t > LOCK[i]; cipher(r, t, 20 + i*6, i, locked, 6);
-    const fl = locked ? clamp(1 - (t - LOCK[i])*6) : 0; if (fl > 0) arc(r, BM + 5, BM - 5, 12, W(0.4*fl)); });
-  windowMarks(BM, 6, 182, 230); hair(238, B0, B1, 0.8);
-  const n = LOCK.filter(l => t > l).length; statBig(t > 0.9 ? 'ACCESS' : 'SYNC ' + n + '/3'); g.globalAlpha = 1; }
-function drawScan(t){ const p = clamp(t/0.8), k = ease(clamp((t - 0.8)/0.2)), fade = clamp(t/0.08)*(1 - clamp((t - 1.05)/0.35));
+  R.forEach((r, i) => { const locked = t > LOCK[i]; cipher(r, t, 14 + i*6, i, locked, 7);
+    const fl = locked ? clamp(1 - (t - LOCK[i])*4) : 0; if (fl > 0) arc(r, BM + 5, BM - 5, 14, W(0.4*fl)); });
+  windowMarks(BM, 6, 176, 232); hair(240, B0, B1, 1, 8);
+  for (let j=0;j<8;j++){ const a = B0 - 5 - j*11.5 - (t*22 % 11.5); const [x, y] = P(256, a); g.globalAlpha = fade*fall(a, BM, 50); text(HEX[(Math.random()*16)|0], x, y, 14, H(0.6), 'center'); }
+  g.globalAlpha = fade; const n = LOCK.filter(l => t > l).length;
+  statLabel('NODE 04'); statBig(t > 2.45 ? 'ACCESS' : 'SYNC ' + n + '/3'); statSub(Math.floor(clamp(t/2.4)*20)*5 + '%'); g.globalAlpha = 1; }
+function drawScanFull(t){ const p = clamp(t/2.0), k = ease(clamp((t - 2.0)/0.4)), fade = 1 - clamp((t - 3.2)/0.4);
   g.globalAlpha = fade;
-  const rot = t < 0.8 ? t*160 : 128 + (1 - Math.exp(-(t - 0.8)*12))*10;
+  const rot = t < 2 ? t*70 : 140 + (1 - Math.exp(-(t - 2)*7))*12;
   for (let m=-24;m<=24;m++){ const a = BM + m*4 + (rot % 4); if (a > B0 || a < B1) continue; g.globalAlpha = fade*fall(a, BM, 44);
-    tick(208, a, m % 5 ? 7 : 16, m % 5 ? 1.5 : 2.5, E(0.85)); }
+    tick(210, a, m % 5 ? 8 : 18, m % 5 ? 1.5 : 2.5, E(0.85)); }
   g.globalAlpha = fade;
-  const spread = p*(B0 - BM); segBand(192, B0, B1, 24, 6, j => { const a = along((j + 0.5)/24); return Math.abs(a - BM) <= spread ? E(0.25 + 0.65*fall(a, BM, 50)) : H(0.08); }, 0.3);
-  windowMarks(BM, 5, 182, 226); 
-  statBig(p < 1 ? 'SCANNING' : 'OBJECT 03'); if (k > 0){ g.globalAlpha = fade*k; statSub('위상 결정 파편 · RECIPE +1'); }
+  const spread = p*(B0 - BM); segBand(190, B0, B1, 24, 8, j => { const a = along((j + 0.5)/24); return Math.abs(a - BM) <= spread ? E(0.25 + 0.65*fall(a, BM, 50)) : H(0.08); }, 0.3);
+  windowMarks(BM, 5, 178, 232); hair(240, B0, B1, 1);
+  statLabel(p < 1 ? 'PHASE SCAN' : 'IDENTIFIED'); statBig(p < 1 ? 'SCANNING' : 'OBJECT 03');
+  statSub(p < 1 ? Math.floor(p*20)*5 + '%' : '위상 결정 파편 · RECIPE +1');
+  if (k > 0){ const [x, y] = P(R_STAT, BM - 9); g.globalAlpha = fade*k;
+    [['Fe-Ni', .62], ['PHASE', .28], ['POLY', .10]].forEach(([n, v], i) => { const yy = y + 38 + i*22; text(n, x, yy, 15, H(0.8));
+      for (let b=0;b<10;b++){ g.fillStyle = b < Math.round(v*10*k) ? E(1) : H(0.18); g.fillRect(x + 70 + b*13, yy - 3, 10, 5); } }); }
   g.globalAlpha = 1; }
 
+// already-decoded targets: the key is cached, so the bracelet only confirms it — same tracks, already locked
+function drawCached(t, label, word, sub, R){ const fade = clamp(t/0.08)*(1 - clamp((t - 0.6)/0.3)), sw = clamp(t/0.3);
+  g.globalAlpha = fade;
+  R.forEach((r, i) => { cipher(r, t, 0, i, true, 5); });
+  arc(R[R.length - 1] + 14, lerp(B0, B1, Math.max(0, sw - 0.15)), lerp(B0, B1, sw), 3, W(0.9*(1 - sw)));      // one quick read sweep
+  windowMarks(BM, 6, R[0] - 10, R[R.length - 1] + 10); statLabel(label); statBig(word); statSub(sub); g.globalAlpha = 1; }
+const drawDoor = t => ACT.cached ? drawCached(t, 'DOOR B-12', 'OPEN', 'CACHED KEY', [184, 200, 216, 232]) : drawDoorFull(t);
+const drawHack = t => ACT.cached ? drawCached(t, 'NODE 04', 'ACCESS', 'CACHED SIGNATURE', [186, 204, 222]) : drawHackFull(t);
+const drawScan = t => ACT.cached ? drawCached(t, 'IDENTIFIED', 'OBJECT 03', '위상 결정 파편 · KNOWN', [190, 210]) : drawScanFull(t);
+function drawMini(al){ const len = (ACT.cached ? ACT_LEN_CACHED : ACT_LEN)[ACT.kind], p = clamp(ACT.t/(len*0.75)), fade = 1 - clamp((ACT.t - len + 0.3)/0.3);
+  g.globalAlpha = al*fade; const [x, y] = P(212, 79);
+  spaced(3); text({door: 'DOOR', hack: 'NODE', scan: 'SCAN'}[ACT.kind], x, y, 12, E(0.7)); spaced(0);
+  drawDecode(statDec, x + 52, y, 17, al*fade);
+  arc(204, 84, lerp(84, 72, p), 2, E(0.9)); arc(204, 84, 72, 1, H(0.25)); g.globalAlpha = 1; }
 // ---------------- world effects driven by the bracelet ----------------
 function beam(n){ const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.Float32BufferAttribute(new Array(n*6).fill(0), 3));
   const l = new THREE.LineSegments(geo, lineMat()); l.frustumCulled = false; l.renderOrder = 6; scene.add(l); return l; }
@@ -344,18 +375,19 @@ function drawMark(n){ const m = markC.getContext('2d'); m.clearRect(0, 0, 256, 2
   m.font = `400 26px ${MONO}`; m.fillStyle = W(1); m.textAlign = 'center'; m.fillText('MK ' + n, 128, 250); markT.needsUpdate = true; }
 
 // ---------------- input ----------------
-function setAim(on){ if (on && ACT.kind) return; if (on && !S.aim && hudK < 0.05) aimIn(); S.aim = on; document.querySelectorAll('[data-a="aim"]').forEach(b => b.setAttribute('aria-pressed', String(on))); $('xh').classList.toggle('ads', on); }
+function setAim(on){ if (on && !S.aim && hudK < 0.05) aimIn(); S.aim = on; document.querySelectorAll('[data-a="aim"]').forEach(b => b.setAttribute('aria-pressed', String(on))); $('xh').classList.toggle('ads', on); }
 function fire(){ if (!S.aim || S.reload > 0 || S.ammo <= 0) return; S.ammo--; AIMD.pulse = T; S.recoil = 1; S.flash = 1; S.glitch = 0.08; tr.t = 0.07; }
 function reload(){ if (S.reload > 0 || S.mags <= 0 || S.ammo === S.max) return; S.reload = 1.4; S.mags--; }
 const cycleType = () => { S.type = (S.type + 1) % 3; };   // dType turns to it
 const mark = () => { S.mark = S.mark >= 3 ? 0 : S.mark + 1; PEEK.mark = 2; drawMark(S.mark); };
 const droneFire = () => { PEEK.drone = 2.5; if (S.dAmmo > 0){ S.dAmmo--; S.batt = Math.max(0, S.batt - 6); dtr.t = 0.12; } else S.dAmmo = S.dMax; };
 const gear = i => { if (GEAR[i].left <= 0) GEAR[i].left = GEAR[i].cd; };
-function act(kind){ if (ACT.kind) return; ACT.kind = kind; ACT.t = 0; setAim(false); statDec.cur = statDec.prev = ''; subDec.cur = subDec.prev = ''; }
+function act(kind){ if (ACT.kind) return; ACT.kind = kind; ACT.t = 0; ACT.cached = KNOWN.has(kind);   // never takes the gun away: aiming stays live
+  statDec.cur = statDec.prev = ''; subDec.cur = subDec.prev = ''; statDec.span = ACT.cached ? 0.25 : 0.7; }
 const tr = {t: 0}, dtr = {t: 0};
 // buttons (side rail on desktop, the on-screen dock on phones) share data-a names
 const BTN = {aim: () => setAim(!S.aim), fire: () => { if (!S.aim) setAim(true); fire(); }, reload, type: cycleType, mark, drone: droneFire,
-  door: () => act('door'), hack: () => act('hack'), scan: () => act('scan'), g0: () => gear(0), g1: () => gear(1), g2: () => gear(2)};
+  door: () => act('door'), hack: () => act('hack'), scan: () => act('scan'), g0: () => gear(0), g1: () => gear(1), g2: () => gear(2), forget: () => KNOWN.clear()};
 document.querySelectorAll('[data-a]').forEach(b => b.addEventListener('click', () => BTN[b.dataset.a]?.()));
 cv.addEventListener('contextmenu', e => e.preventDefault());
 cv.addEventListener('pointerdown', e => { if (e.button === 2) setAim(true); else if (e.button === 0) fire(); });
@@ -388,19 +420,19 @@ function frame(now){
   GEAR.forEach(G => { if (G.left > 0 && G.left <= dt) G.ready = 0.8; G.left = Math.max(0, G.left - dt); G.ready = Math.max(0, G.ready - dt); });
   PEEK.drone = Math.max(0, PEEK.drone - dt); PEEK.mark = Math.max(0, PEEK.mark - dt);
   SPRINGS.forEach(sp => sp.step(dt));
-  if (ACT.kind){ ACT.t += dt; if (ACT.t > ACT_LEN[ACT.kind]) ACT.kind = ''; }
+  if (ACT.kind){ ACT.t += dt; if (ACT.t > (ACT.cached ? ACT_LEN_CACHED : ACT_LEN)[ACT.kind]){ KNOWN.add(ACT.kind); ACT.kind = ''; } }
 
   // pose blend: hip ↔ ads, then ↔ wrist-up while the bracelet is working
   look.x = lerp(look.x, look.tx, 1 - Math.exp(-dt*4)); look.y = lerp(look.y, look.ty, 1 - Math.exp(-dt*4));
   camera.rotation.set(-look.y*0.1, -look.x*0.16, 0, 'YXZ');
   aimK = lerp(aimK, S.aim ? 1 : 0, 1 - Math.exp(-dt*14));
-  actK = lerp(actK, ACT.kind ? 1 : 0, 1 - Math.exp(-dt*(ACT.kind ? 14 : 8)));
+  actK = lerp(actK, ACT.kind ? 1 : 0, 1 - Math.exp(-dt*(ACT.kind ? 9 : 6)));
   hudK = clamp(hudK + (S.aim ? dt/0.4 : -dt/0.16));
   const portrait = camera.aspect < 1, nar = portrait ? 0.18 : clamp(camera.aspect/1.6, 0.42, 1);   // phones: wider view, arm pulled in so cuff + arcs stay on screen
   const fov0 = portrait ? 66 : 55; camera.fov = lerp(fov0, fov0 - 8, aimK); camera.updateProjectionMatrix();
-  _p.lerpVectors(POSE.hip.p, POSE.ads.p, aimK).lerp(POSE.wrist.p, actK*0.45);
+  _p.lerpVectors(POSE.hip.p, POSE.ads.p, aimK).lerp(POSE.wrist.p, actK*0.45*(1 - aimK));
   _q[0].setFromEuler(POSE.hip.r); _q[1].setFromEuler(POSE.ads.r); _q[2].setFromEuler(POSE.wrist.r);
-  _qa.slerpQuaternions(_q[0], _q[1], aimK).slerp(_q[2], actK*0.45);   // only a small wrist turn: the hands stay on the gun
+  _qa.slerpQuaternions(_q[0], _q[1], aimK).slerp(_q[2], actK*0.45*(1 - aimK));   // a small wrist turn, none while aiming: the hands stay on the gun
   const sway = RM ? 0 : (1 - aimK*0.75);
   rig.scale.setScalar(portrait ? 0.44 : 0.62); rig.position.copy(_p); rig.position.x *= nar; if (portrait) rig.position.y += 0.02;
   rig.position.x += Math.sin(T*1.1)*0.003*sway - (look.tx - look.x)*0.02; rig.position.y += Math.sin(T*2.2)*0.002*sway + (look.ty - look.y)*0.015;
@@ -408,7 +440,7 @@ function frame(now){
   rig.position.z += S.recoil*0.022; rig.position.y -= rl*0.05;
   rig.quaternion.copy(_qa); rig.rotateX(S.recoil*0.07 - rl*0.35); rig.rotateZ(rl*0.5);
   wrist.quaternion.copy(rig.quaternion).invert();                  // display faces the eye, centred on the cuff
-  wrist.scale.setScalar(lerp(1.0, 1.2, actK)*(portrait ? lerp(1.45, 1.05, actK) : 1));                     // action rings sit clear of the (closer) cuff
+  const actFull = actK*(1 - aimK); wrist.scale.setScalar(lerp(1.0, 1.3, actFull)*(portrait ? lerp(1.45, 1.02, actFull) : 1));                     // action rings sit clear of the (closer) cuff
   flash.material.opacity = S.flash; flash.material.rotation = Math.random()*6; flash.scale.setScalar(0.06 + S.flash*0.06);
   crystal.rotation.y += dt*0.4;
 
@@ -419,24 +451,28 @@ function frame(now){
 
   // ---- wrist display ----
   g.clearRect(0, 0, N, N);
-  if (hudK > 0.001 && !ACT.kind) drawAim(T);
-  if (ACT.kind === 'door') drawDoor(ACT.t); else if (ACT.kind === 'hack') drawHack(ACT.t); else if (ACT.kind === 'scan') drawScan(ACT.t);
+  if (hudK > 0.001) drawAim(T);
+  if (ACT.kind){   // the action keeps running while aiming; its full read-out folds into one line above the plates
+    gAct.clearRect(0, 0, N, N); g = gAct;
+    if (ACT.kind === 'door') drawDoor(ACT.t); else if (ACT.kind === 'hack') drawHack(ACT.t); else drawScan(ACT.t);
+    g = gMain; const full = 1 - aimK; if (full > 0.02){ g.globalAlpha = full; g.drawImage(ac, 0, 0); g.globalAlpha = 1; }
+    if (aimK > 0.02) drawMini(aimK); }
   wTex.needsUpdate = true; wrist.visible = hudK > 0.001 || !!ACT.kind;
 
   // ---- world side of each action (the bracelet's beam / cone, and the result) ----
   const t = ACT.t; let rayOp = 0;
-  if (ACT.kind === 'door'){ doorAnchor.getWorldPosition(_w); seg(ray, 0, _v, _w); rayOp = clamp(t/0.08)*(1 - clamp((t - 0.4)/0.15))*(0.6 + Math.random()*0.4); if (t > 0.4) doorHold = 4; }
-  if (ACT.kind === 'hack'){ termAnchor.getWorldPosition(_w); seg(ray, 0, _v, _w); rayOp = clamp(t/0.08)*(1 - clamp((t - 0.9)/0.15))*(0.5 + Math.random()*0.5);
-    tScreenM.color.setHex(t > 0.9 ? 0x5fd6c2 : (Math.floor(t*14) % 2 ? 0x2a6c62 : 0x173c37)); if (t > 0.9) hackLit = 4; }
+  if (ACT.kind === 'door'){ doorAnchor.getWorldPosition(_w); seg(ray, 0, _v, _w); const tOpen = ACT.cached ? 0.25 : 0.95; rayOp = clamp(t/0.15)*(1 - clamp((t - tOpen)/0.2))*(0.6 + Math.random()*0.4); if (t > tOpen) doorHold = 4; }   // the door opens the moment the pins set
+  if (ACT.kind === 'hack'){ termAnchor.getWorldPosition(_w); seg(ray, 0, _v, _w); const tAcc = ACT.cached ? 0.3 : 2.45; rayOp = clamp(t/0.15)*(1 - clamp((t - tAcc)/0.2))*(0.5 + Math.random()*0.5);
+    tScreenM.color.setHex(t > tAcc ? 0x5fd6c2 : (Math.floor(t*14) % 2 ? 0x2a6c62 : 0x173c37)); if (t > tAcc) hackLit = 4; }
   ray.material.opacity = rayOp;
   doorHold = Math.max(0, doorHold - dt); doorOpen = lerp(doorOpen, doorHold > 0 ? 1 : 0, 1 - Math.exp(-dt*5));
   leafL.position.x = -0.35 - doorOpen*0.66; leafR.position.x = 0.35 + doorOpen*0.66; doorLockM.color.setHex(doorHold > 0 ? 0x2e8f80 : 0x3a1418);
   hackLit = Math.max(0, hackLit - dt); if (!ACT.kind || ACT.kind !== 'hack') tScreenM.color.setHex(hackLit > 0 ? 0x5fd6c2 : 0x1d4a44);
-  const scanning = ACT.kind === 'scan' && t < 0.85;
-  if (ACT.kind === 'scan'){ const sh = 0.78 + clamp(t/0.8)*0.62, rr = 0.3*(1 - 0.5*clamp((sh - 0.9)/0.5));
+  const tScan = ACT.cached ? 0.3 : 2.0, scanning = ACT.kind === 'scan' && t < tScan + 0.05;
+  if (ACT.kind === 'scan'){ const sh = 0.78 + clamp(t/tScan)*0.62, rr = 0.3*(1 - 0.5*clamp((sh - 0.9)/0.5));
     scanRing.position.y = sh; scanRing.scale.setScalar(rr/0.3);
     for (let i=0;i<8;i++){ const a = i/8*Math.PI*2 + t*2; seg(cone, i, _v, _w.set(relic.position.x + Math.cos(a)*rr, sh, relic.position.z + Math.sin(a)*rr)); }
-    crystalWire.material.opacity = clamp(t/0.8)*0.55*(1 - clamp((t - 1.0)/0.4)); }
+    crystalWire.material.opacity = clamp(t/tScan)*0.55*(1 - clamp((t - tScan - 1.0)/0.4)); }
   else crystalWire.material.opacity = 0;
   scanRing.material.opacity = scanning ? 0.9 : 0; cone.material.opacity = scanning ? 0.28 : 0;
 
@@ -450,4 +486,4 @@ function frame(now){
 }
 drawMark(S.mark);
 requestAnimationFrame(frame);
-window.__wrist = {S, ACT, roll, GEAR, PEEK, setAim, fire, act, gear};   // capture / debug hook
+window.__wrist = {S, ACT, KNOWN, roll, GEAR, PEEK, setAim, fire, act, gear};   // capture / debug hook

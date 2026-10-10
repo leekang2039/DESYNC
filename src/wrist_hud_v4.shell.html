@@ -60,7 +60,7 @@ kbd{font:400 11px var(--f-mono);color:var(--muted);margin-left:6px}
   </div>
   <aside class="rail">
     <h1>팔찌 아크 HUD</h1>
-    <p>조준하면 팔찌가 빛을 쏘아 호 모양 빛의 막과 홀로그램 숫자를 띄워요. 드론·기어·마킹 정보는 바뀔 때만 잠깐 나타나요. 문 열기·해킹·스캔 키를 누르면 손목이 올라오고 팔찌 이음새가 하늘색으로 바뀌면서, 손목 바깥쪽 짧은 호에서 트랙들이 흐르다 창에 맞춰 고정되고 빔/스캔 이펙트가 나옵니다.</p>
+    <p>조준하면 팔찌의 장갑판이 홀로그램으로 펼쳐져 호를 이루고, 판 안의 빛과 숫자로 잔탄을 보여요. 드론·기어·마킹 정보는 바뀔 때만 잠깐 나타나요. 문 열기·해킹·스캔 키를 누르면 손목이 올라오고 팔찌 이음새가 하늘색으로 바뀌면서, 손목 바깥쪽 짧은 호에서 트랙들이 흐르다 창에 맞춰 고정되고 빔/스캔 이펙트가 나옵니다.</p>
     <p style="font-size:12px">화면 우클릭 유지 = 조준, 조준 중 좌클릭 = 사격, 마우스 이동 = 시선.</p>
 
     <div class="lab">전투</div>
@@ -87,18 +87,21 @@ kbd{font:400 11px var(--f-mono);color:var(--muted);margin-left:6px}
 
     <div class="lab">조준 HUD</div>
     <div class="seq">
-      <span>프로젝션</span><span>팔찌가 프로젝터처럼 빛살을 뿜어 호 모양 빛의 막을 만듦</span>
-      <span>빛 가장자리</span><span>밝게 빛나는 길이 = 남은 탄. 끝의 빛점이 다음 탄, 사격 시 반짝임이 가장자리를 타고 오름, 재장전 중엔 다시 차오름</span>
-      <span>18 ×3</span><span>스캔라인이 흐르는 홀로그램 숫자 · 바뀐 자리만 불규칙 해독 · 10발 이하 깜빡임</span>
-      <span>STD</span><span>탄종 롤러: 세로로 굴러 다음 탄종이 딸깍</span>
-      <span>P-07 · TAG 4s · MARK</span><span>드론·기어·마킹 정보는 필요할 때만 정밀 눈금 바깥에 해독되어 뜸</span>
+      <span>장갑판 프레임</span><span>팔찌의 모따기된 흰 장갑판을 홀로그램 윤곽선으로 옮긴 고정 프레임. 조준하면 판 5장이 팔찌에서 차례로 펼쳐져 맞물림</span>
+      <span>판 안의 빛</span><span>남은 탄만큼 판 안이 빛으로 차 있음(칸 구분 없는 하나의 빛) · 빛의 앞선이 줄어듦 · 10발 이하 맥동</span>
+      <span>키스톤 판</span><span>마지막 큰 판에 RND 라벨, 홀로그램 잔탄 숫자, ×3, 탄종 롤러 · 사격 시 테두리 번쩍</span>
+      <span>P-07 · TAG 4s · MARK</span><span>필요할 때만 판 바깥에 해독되어 뜸</span>
     </div>
-    <div class="lab">팔찌 동작 UI (반복 동작이라 1초 남짓)</div>
+    <div class="lab">팔찌 동작 UI</div>
     <div class="seq">
-      <span>문 열기</span><span>트랙 3줄이 0.4초 안에 창에 고정 → OPEN · 손목은 살짝만 돌아감</span>
-      <span>해킹</span><span>암호 트랙 3줄이 고정 → ACCESS (약 1초)</span>
-      <span>스캔</span><span>눈금 휠이 0.8초 돌고 멈춤 → OBJECT 03</span>
+      <span>방해하지 않기</span><span>동작 중에도 조준·사격 가능. 조준하면 전체 UI가 판 위 한 줄(상태 + 진행선)로 접히고 해독은 계속됨</span>
+      <span>결과 먼저</span><span>핀이 맞는 순간 문이 열리고 단말이 켜짐. 나머지 연출은 그 뒤에 이어짐</span>
+      <span>처음 / 반복</span><span>처음 대상: 전체 해독 연출. 한 번 해독한 대상: 저장된 키로 확인만(CACHED KEY, 약 0.9초)</span>
+      <span>문 열기</span><span>텀블러 트랙 4줄 → 불규칙 해독 OPEN</span>
+      <span>해킹</span><span>암호 트랙 3줄 → SYNC n/3 → ACCESS</span>
+      <span>스캔</span><span>눈금 휠 → OBJECT 03 → 성분 판독 (두 번째부터 KNOWN)</span>
     </div>
+    <div class="row"><button data-a="forget">해독 기록 초기화</button></div>
     <div id="err" role="status"></div>
   </aside>
 </div>
