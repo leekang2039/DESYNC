@@ -247,11 +247,11 @@ const droneDec = new Decoder(''), gearDec = new Decoder(''), markDec = new Decod
 const roll = new Spring(240, 19);                    // round-type roller: turns forward, overshoots into place
 let portraitUI = false;
 function aimIn(){ AIMD.t0 = T; countDec.scramble(); magDec.scramble(); }
-function drawRoller(x, y, size, al){ const n = TYPES.length, p = roll.pos, moving = roll.moving;
+function drawRoller(x, y, size, al, sp=3){ const n = TYPES.length, p = roll.pos, moving = roll.moving;
   for (let k=Math.floor(p) - 1; k<=Math.floor(p) + 2; k++){ const d = k - p, ang = d*Math.PI/3, cs = Math.cos(ang);
     if (cs <= 0.05 || (!moving && Math.abs(d) > 0.5)) continue;
     g.save(); g.translate(x, y + Math.sin(ang)*size*1.25); g.scale(1, cs); g.globalAlpha = al*cs;
-    spaced(3); text(TYPES[((k % n) + n) % n], 0, 0, size, Math.abs(d) < 0.5 ? W(1) : E(0.7), 'left', Math.abs(d) < 0.5); spaced(0); g.restore(); }
+    spaced(sp); text(TYPES[((k % n) + n) % n], 0, 0, size, Math.abs(d) < 0.5 ? W(1) : E(0.7), 'left', Math.abs(d) < 0.5); spaced(0); g.restore(); }
   g.globalAlpha = 1; }
 function corners(x, y, w, h, s, col){ g.strokeStyle = col; g.lineWidth = 1.5;
   [[x, y, 1, 1], [x + w, y, -1, 1], [x, y + h, 1, -1], [x + w, y + h, -1, -1]].forEach(([cx, cy, sx, sy]) => { g.beginPath(); g.moveTo(cx, cy + sy*s); g.lineTo(cx, cy); g.lineTo(cx + sx*s, cy); g.stroke(); }); }
@@ -285,19 +285,28 @@ function drawAim(T){
     g.fillStyle = H(0.5*(1 - kT)); g.fillRect(bx + 2, y0, bw - 4, 1); g.fillRect(bx + 2, y0 + hh - 1, bw - 4, 1); }
   if (kT <= 0){ g.globalAlpha = 1; return; }
   g.globalAlpha = vis*kT;
-  // header: label, round type at the right, a rule
-  label('RND', bx + 12, by + 16, kT);
-  roll.target = (() => { let t = S.type + TYPES.length*Math.floor(roll.target/TYPES.length); while (t < roll.target - 1e-6) t += TYPES.length; return t; })();
-  drawRoller(bx + bw - 46, by + 16, 13, vis*kT);
-  g.globalAlpha = vis*kT; g.fillStyle = E(0.35); g.fillRect(bx + 12, by + 27, bw - 24, 1);
-  // the figure
+  // inside, laid out like the map's CORE ANALYSIS panel: a progress ring with the figure in it, a spaced-caps word, quiet rows
+  label('AIM', bx + 12, by + 14, kT, 10); { g.textAlign = 'right'; spaced(3); g.font = `400 10px ${MONO}`; g.fillStyle = E(0.55*kT); g.fillText('P-07', bx + bw - 12, by + 14); spaced(0); g.textAlign = 'left'; }
+  g.fillStyle = E(0.3); g.fillRect(bx + 12, by + 23, bw - 24, 1);
+  // ring: the magazine as one continuous arc, a slow hexagon round it, the count decoded in its centre
+  const cx = bx + 44, cy = by + 64, rr = 27, frac = rl ? clamp(1 - S.reload/1.4) : S.ammo/S.max;
+  g.strokeStyle = H(0.22); g.lineWidth = 1; g.beginPath(); g.arc(cx, cy, rr, 0, Math.PI*2); g.stroke();
+  g.strokeStyle = H(0.12); g.lineWidth = 7; g.beginPath(); g.arc(cx, cy, rr, 0, Math.PI*2); g.stroke();
+  if (frac > 0){ g.strokeStyle = (shot > 0 ? W(0.7 + 0.3*shot) : E(0.95*pulse)); g.lineWidth = 3; g.beginPath(); g.arc(cx, cy, rr, -Math.PI/2, -Math.PI/2 + frac*Math.PI*2); g.stroke(); }
+  g.save(); g.translate(cx, cy); g.rotate(T*0.6); g.strokeStyle = H(0.3); g.lineWidth = 1; g.beginPath();
+  for (let k=0;k<6;k++){ const a = k/6*Math.PI*2; g.lineTo(Math.cos(a)*36, Math.sin(a)*36); } g.closePath(); g.stroke(); g.restore();
   countDec.set(rl ? '--' : String(S.ammo).padStart(2, '0'));
-  drawDecode(countDec, bx + 10 - S.recoil*2, by + 62, 52, vis*kT*(low ? pulse : 1));
-  g.globalAlpha = vis*kT; text('/' + S.max, bx + 76, by + 70, 16, H(0.6));
-  magDec.set(String(S.mags)); label('MAG', bx + 116, by + 56, kT, 11); drawDecode(magDec, bx + 152, by + 56, 16, vis*kT);
-  // a single read line along the bottom, the length of what is left (the map's read-line, nothing more)
-  const frac = rl ? clamp(1 - S.reload/1.4) : S.ammo/S.max;
-  g.fillStyle = H(0.2); g.fillRect(bx + 12, by + bh - 14, bw - 24, 1); g.fillStyle = E(0.9*pulse); g.fillRect(bx + 12, by + bh - 14.5, (bw - 24)*frac, 2);
+  g.font = `400 26px ${MONO}`; const cw = g.measureText('0').width;
+  drawDecode(countDec, cx - cw - S.recoil*1.5, cy + 1, 26, vis*kT*(low ? pulse : 1));
+  g.globalAlpha = vis*kT; text('/' + S.max, cx, cy + 19, 10, H(0.6), 'center');
+  // right column: the round type as a spaced word (still the roller), a rule, two data rows
+  const rx = bx + 92;
+  roll.target = (() => { let t = S.type + TYPES.length*Math.floor(roll.target/TYPES.length); while (t < roll.target - 1e-6) t += TYPES.length; return t; })();
+  drawRoller(rx, by + 46, 17, vis*kT, 7);
+  g.globalAlpha = vis*kT; g.fillStyle = H(0.3); g.fillRect(rx, by + 60, bw - 104, 1);
+  magDec.set(String(S.mags)); label('MAG', rx, by + 74, kT, 10); drawDecode(magDec, rx + 38, by + 74, 13, vis*kT);
+  const rng = camera.position.distanceTo(AIM_PT).toFixed(1);
+  g.globalAlpha = vis*kT; label('RNG', rx, by + 90, kT, 10); text(rng + 'm', rx + 38, by + 90, 13, W(0.9*kT));
   // contextual rows stack under the pane only while they matter (decode in, then fade)
   const rows = [];
   if (PEEK.drone > 0 || S.batt <= 20) rows.push([droneDec, 'P-07', 'BATT ' + Math.round(S.batt) + '  RD ' + S.dAmmo, Math.max(clamp(PEEK.drone/0.4), S.batt <= 20 ? 1 : 0)]); else droneDec.cur = droneDec.prev = '';
