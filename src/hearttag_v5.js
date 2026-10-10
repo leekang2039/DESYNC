@@ -1,7 +1,8 @@
 // Heart Tag v5 · cartridges + auto-decode — source. Built into HeartTag_Cartridge_v5.html (three.js inlined)
 // by `node src/build.mjs v5`.
-// v5: no bracelet. The shoulder-worn Heart Tag carries three swappable cartridges; walking past doors, terminals and
-// objects, it decodes them on its own and projects the pattern over the shoulder — nothing to press, just something to watch.
+// v5: no bracelet. The shoulder-worn Heart Tag carries three swappable cartridges and does the work when the player
+// interacts (E) — the projected pattern simply shows it is happening. It also listens (T, "Hey T / Hey H / Para"):
+// ask where things are or for a route and it marks the floor, since there is no full map. The gun folds pistol ↔ rifle on V.
 import * as THREE from 'three';
 import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
 import {EffectComposer} from 'three/addons/postprocessing/EffectComposer.js';
@@ -97,11 +98,37 @@ box(0.05, 0.012, 0.2, M(0x2b333b, .5, .5), 0, 0.05, 0.24, 0, rig);
 const glove = new THREE.Mesh(new THREE.SphereGeometry(1, 24, 16), gloveM); glove.scale.set(0.044, 0.038, 0.058); glove.position.set(0, -0.004, -0.04); rig.add(glove);
 const gun = new THREE.Group(); gun.position.z = -0.05; rig.add(gun);
 const gbox = (w, h, d, mat, x, y, z, rx=0) => { const o = box(w, h, d, mat, x, y, z, 0, gun); o.rotation.x = rx; return o; };
-gbox(0.036, 0.056, 0.31, gunM, 0, 0.048, -0.15); gbox(0.03, 0.085, 0.04, gunM2, 0, -0.004, -0.02, 0.28); gbox(0.026, 0.075, 0.034, gunM2, 0, -0.006, -0.12, 0.08);
-gbox(0.018, 0.008, 0.2, gunM2, 0, 0.08, -0.15); gbox(0.012, 0.016, 0.01, gunM2, 0, 0.09, -0.05); gbox(0.008, 0.018, 0.008, gunM2, 0, 0.09, -0.24);
-const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.009, 0.009, 0.14, 14), gunM); barrel.rotation.x = Math.PI/2; barrel.position.set(0, 0.056, -0.36); gun.add(barrel);
-gbox(0.002, 0.005, 0.17, new THREE.MeshBasicMaterial({color: HOLO, toneMapped: false}), 0.0185, 0.05, -0.17);
-const muzzle = new THREE.Object3D(); muzzle.position.set(0, 0.056, -0.44); gun.add(muzzle);
+// modular gun: a pistol core; on demand the chassis unfolds into a rifle (shroud slides out, barrel extends, rails drop,
+// stock swings back from under the frame, optic flips up, the magazine extends) — manual, when the player wants it
+const GUN = {k: 0, target: 0};
+gbox(0.03, 0.034, 0.17, gunM, 0, 0.05, -0.08);                       // slide
+gbox(0.028, 0.02, 0.15, gunM2, 0, 0.028, -0.07);                     // frame
+gbox(0.03, 0.085, 0.036, gunM2, 0, -0.012, -0.0, 0.25);              // grip
+gbox(0.006, 0.02, 0.03, gunM2, 0, 0.008, -0.045);                    // trigger guard
+const shroud = gbox(0.032, 0.03, 0.2, gunM, 0, 0.05, -0.09);
+const rBarrel = new THREE.Mesh(new THREE.CylinderGeometry(0.007, 0.007, 0.12, 12), gunM); rBarrel.rotation.x = Math.PI/2; gun.add(rBarrel);
+const rails = [-1, 1].map(sx => gbox(0.004, 0.022, 0.16, gunM2, sx*0.018, 0.04, -0.2));
+const stockPv = new THREE.Group(); stockPv.position.set(0, 0.03, 0.01); gun.add(stockPv);
+const stockArm = box(0.008, 0.012, 0.2, gunM2, 0, 0, 0.1, 0, stockPv), stockArm2 = box(0.008, 0.012, 0.2, gunM2, 0, -0.03, 0.1, 0, stockPv); box(0.03, 0.06, 0.012, gunM2, 0, -0.015, 0.2, 0, stockPv);
+const opticPv = new THREE.Group(); opticPv.position.set(0, 0.067, -0.05); gun.add(opticPv);
+box(0.02, 0.022, 0.06, gunM2, 0, 0.011, -0.03, 0, opticPv); const lens = box(0.016, 0.016, 0.002, new THREE.MeshBasicMaterial({color: 0x173c37, toneMapped: false}), 0, 0.012, 0.0005, 0, opticPv);
+const mag = gbox(0.024, 0.07, 0.03, gunM2, 0, -0.02, -0.11, 0.08);
+gbox(0.002, 0.005, 0.12, new THREE.MeshBasicMaterial({color: HOLO, toneMapped: false}), 0.0155, 0.05, -0.08);
+const muzzle = new THREE.Object3D(); gun.add(muzzle);
+// ammo display on the back of the slide, tilted toward the eye (replaces the wrist read-out)
+const gc = document.createElement('canvas'); gc.width = 256; gc.height = 128; const gg = gc.getContext('2d');
+const gTex = new THREE.CanvasTexture(gc); gTex.colorSpace = THREE.SRGBColorSpace;
+const gDisp = new THREE.Mesh(new THREE.PlaneGeometry(0.03, 0.015), new THREE.MeshBasicMaterial({map: gTex, transparent: true, toneMapped: false}));
+gDisp.position.set(0, 0.0685, 0.004); gDisp.rotation.x = -1.05; gun.add(gDisp);
+function poseGun(k){ const s1 = ease(clamp(k/0.5)), s2 = ease(clamp((k - 0.2)/0.5)), s3 = ease(clamp((k - 0.3)/0.6)), s4 = ease(clamp((k - 0.6)/0.4));
+  shroud.position.z = lerp(-0.09, -0.24, s1); shroud.scale.z = lerp(0.85, 1, s1);
+  rBarrel.position.set(0, 0.05, lerp(-0.12, -0.38, s1)); rBarrel.visible = s1 > 0.02;
+  rails.forEach(r => { r.position.y = lerp(0.05, 0.026, s2); r.position.z = lerp(-0.1, -0.22, s2); r.scale.y = lerp(0.2, 1, s2); });
+  stockPv.rotation.x = lerp(Math.PI*0.98, 0, s3); stockPv.visible = true;
+  opticPv.rotation.x = lerp(-1.45, 0, s4); lens.material.color.setHex(s4 > 0.9 ? 0x5fd6c2 : 0x173c37);
+  mag.scale.y = lerp(1, 1.55, s2); mag.position.y = lerp(-0.02, -0.04, s2);
+  muzzle.position.set(0, 0.05, lerp(-0.17, -0.45, s1)); }
+poseGun(0);
 const flashT = (() => { const c = document.createElement('canvas'); c.width = c.height = 128; const g = c.getContext('2d'); const r = g.createRadialGradient(64, 64, 0, 64, 64, 64);
   r.addColorStop(0, 'rgba(255,250,235,1)'); r.addColorStop(.25, 'rgba(255,200,130,.8)'); r.addColorStop(1, 'rgba(255,140,60,0)'); g.fillStyle = r; g.fillRect(0, 0, 128, 128); return new THREE.CanvasTexture(c); })();
 const flash = new THREE.Sprite(new THREE.SpriteMaterial({map: flashT, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false})); flash.scale.setScalar(0.09); muzzle.add(flash);
@@ -198,18 +225,22 @@ function drawDenied(t){ const k = clamp(t/0.5);  // the required cartridge isn't
   segBand(200, B0, B1, 40, 6, j => (j + Math.floor(t*20)) % 4 === 0 ? H(0.5*(1 - k)) : null, 0.5); }
 
 // ---------------- state ----------------
-const S = {walk: true, z: 4, aim: false, flash: 0, recoil: 0, sync: 82, space: 0};
+const S = {walk: true, z: 4, aim: false, flash: 0, recoil: 0, sync: 82, space: 0, listen: false, voice: true, reload: 0, ammo: {P: 15, R: 30}, max: {P: 15, R: 30}};
+const gunMode = () => GUN.target > 0.5 ? 'R' : 'P';
 const ACT = {kind: '', t: 0, target: null, len: 0};
 const KNOWN = new Set();
 const LEN = {door: 2.6, hack: 3.4, scan: 3.6, anchor: 2.1, known: 0.6, denied: 0.5};
+let NEAR = null;
 const TARGETS = [
-  {id: 'relic', kind: 'scan', need: 'PULSE', obj: relic, range: 3.4},
-  {id: 'door-b12', kind: 'door', need: 'DECODER', obj: doorAnchor, range: 5.0},
-  {id: 'node-04', kind: 'hack', need: 'DECODER', obj: termAnchor, range: 6.0},
+  {id: 'relic', kind: 'scan', need: 'PULSE', obj: relic, range: 3.4, label: '스캔'},
+  {id: 'door-b12', kind: 'door', need: 'DECODER', obj: doorAnchor, range: 5.0, label: '문 열기'},
+  {id: 'node-04', kind: 'hack', need: 'DECODER', obj: termAnchor, range: 4.6, label: '단말 접속'},
 ];
+const DSYNC_T = {id: 'dsync', kind: 'anchor', label: 'DESYNC 문', obj: null};
 let doorHold = 0, doorOpen = 0, hackLit = 0, scanLit = 0, portalK = 0, flashK = 0, projK = 0;
 function start(kind, target){ ACT.kind = kind; ACT.t = 0; ACT.target = target; ACT.len = LEN[kind]; }
 function finish(){ const tg = ACT.target; if (tg && ['door', 'hack', 'scan', 'known'].includes(ACT.kind)) KNOWN.add(tg.id); ACT.kind = ''; ACT.target = null; }
+function interact(){ if (ACT.kind || !NEAR || NEAR === DSYNC_T) return; const tg = NEAR; start(!has(tg.need) ? 'denied' : KNOWN.has(tg.id) ? 'known' : tg.kind, tg); }
 function desyncKey(){ if (ACT.kind || S.z > -11) return; if (!has('ANCHOR')){ start('denied', null); return; } start('anchor', {id: 'dsync', obj: dAnchor}); }
 const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _w = new THREE.Vector3();
 
@@ -242,18 +273,100 @@ function renderSlotList(){ const el = $('slots'); if (!el) return;
   el.innerHTML = SLOTS.map((c, i) => `<button data-slot="${i}">${i + 1} · ${c}<kbd>${POOL[c].note}</kbd></button>`).join('');
   el.querySelectorAll('[data-slot]').forEach(b => b.onclick = () => cycleSlot(+b.dataset.slot)); }
 
+// ---------------- gun-mounted display ----------------
+function drawGunDisplay(){ const m = gunMode(), moving = Math.abs(GUN.k - GUN.target) > 0.02, n = S.ammo[m], mx = S.max[m];
+  gg.clearRect(0, 0, 256, 128); gg.fillStyle = 'rgba(4,10,12,0.92)'; gg.fillRect(0, 0, 256, 128);
+  gg.font = `400 72px ${MONO}`; gg.textBaseline = 'middle'; gg.textAlign = 'left';
+  gg.fillStyle = n <= mx*0.25 && Math.floor(T*4) % 2 ? H(0.5) : W(1); gg.fillText(S.reload > 0 ? '--' : moving ? '..' : String(n).padStart(2, '0'), 16, 60);
+  gg.font = `400 30px ${MONO}`; gg.fillStyle = E(0.9); gg.textAlign = 'right'; gg.fillText(moving ? '<>' : m === 'R' ? 'RFL' : 'PST', 240, 40);
+  gg.fillStyle = H(0.6); gg.fillText('/' + mx, 240, 84);
+  gg.fillStyle = H(0.25); gg.fillRect(16, 110, 224, 6); gg.fillStyle = E(1); gg.fillRect(16, 110, 224*(S.reload > 0 ? 1 - S.reload/1.2 : n/mx), 6); gTex.needsUpdate = true; }
+
+// ---------------- listening mode: talk to the Heart Tag ("Hey T" / "Hey H" / "Para"), it navigates and answers ----------------
+const INFO = [
+  {keys: ['크리스털', '결정', '파편', '유물', 'relic', 'crystal'], id: 'relic', name: '위상 결정 파편', obj: relic, info: 'Fe-Ni 62 · 위상 결정 28 · 폴리머 10. 소음흡수 핀을 만드는 재료예요.'},
+  {keys: ['b-12', 'b12', '보안문', '왼쪽 문', 'door'], id: 'door-b12', name: '보안 문 B-12', obj: door, info: '구역 B로 이어지는 문이에요. 해독하면 키가 저장돼요.'},
+  {keys: ['단말', '노드', '터미널', 'node', 'terminal'], id: 'node-04', name: '단말 NODE 04', obj: term, info: '구역 전력망 노드예요. 접속하면 이 구역 기록을 받을 수 있어요.'},
+  {keys: ['desync', '디싱크', '탈출', '출구', '다른 공간', '앵커', '끝 문'], id: 'dsync', name: 'DESYNC 문', obj: dsync, info: 'ANCHOR 카트리지로 다른 공간과 이어지는 문이에요.', always: true},
+];
+const REPLY = {text: '', t0: -9, lock: []};
+function say(text){ REPLY.text = text; REPLY.t0 = T; REPLY.lock = [...text].map((_, i) => 0.05 + i*0.018 + Math.random()*0.25);
+  if (S.voice && 'speechSynthesis' in window){ try { speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(text.replace(/[·]/g, ',')); u.lang = 'ko-KR'; u.rate = 1.05; u.pitch = 0.9; speechSynthesis.speak(u); } catch (e) {} } }
+function drawReply(){ const el = $('reply'); const e = T - REPLY.t0; if (!REPLY.text || e > 9){ el.hidden = true; return; } el.hidden = false;
+  el.style.opacity = String(1 - clamp((e - 8)/1));
+  el.textContent = [...REPLY.text].map((c, i) => c === ' ' || e > REPLY.lock[i] ? c : GLYPHS[(Math.random()*GLYPHS.length)|0]).join(''); }
+const GLYPHS = '0123456789ABCDEF#%/<>';
+function dirOf(v){ camera.getWorldDirection(_a); _a.y = 0; _a.normalize(); _b.set(v.x - camera.position.x, 0, v.z - camera.position.z); const d = _b.length(); _b.normalize();
+  const ang = Math.atan2(_a.x*_b.z - _a.z*_b.x, _a.dot(_b))/D2R, s = Math.abs(ang) < 25 ? '정면' : Math.abs(ang) > 140 ? '뒤쪽' : ang > 0 ? (Math.abs(ang) < 70 ? '오른쪽 앞' : '오른쪽') : (Math.abs(ang) < 70 ? '왼쪽 앞' : '왼쪽');
+  return [s, d.toFixed(0)]; }
+function respond(raw){ const q = raw.toLowerCase().replace(/^(hey\s*[th]|헤이\s*[티에이치]+|para|파라)[,\s]*/, '').trim();
+  const item = INFO.find(it => it.keys.some(k => q.includes(k)));
+  const known = item && (item.always || KNOWN.has(item.id));
+  const at = it => it.obj.getWorldPosition(new THREE.Vector3());
+  if (/(길|경로|안내|가는 ?법|어떻게 가|데려|route|way)/.test(q)){ const it = item || INFO[3]; const p = at(it); const [d, m] = dirOf(p);
+    navTo(p, known || !item); return say(`${it.name}까지 경로 표시할게요. ${d} ${m}m.`); }
+  if (item && /(어디|위치|where|찾아|있어)/.test(q)){ const p = at(item); const [d, m] = dirOf(p);
+    if (known){ navTo(p, true); return say(`${item.name}, ${d} ${m}m에 있어요. 바닥에 표시했어요.`); }
+    navTo(p, false); return say(`${item.name}은 아직 분석 전이라 정확한 위치는 몰라요. 신호는 ${d} 쪽이에요.`); }
+  if (item){ return known ? say(`${item.name}. ${item.info}`) : say(`${item.name}은 아직 분석하지 않았어요. 가까이 가서 확인해 주세요.`); }
+  if (/(카트리지|슬롯|장착)/.test(q)) return say(`지금 장착한 카트리지는 ${SLOTS.join(', ')}이에요.`);
+  if (/(동기화|싱크|sync|상태|괜찮)/.test(q)) return say(`동기화율 ${S.sync}%. 안정적이에요.`);
+  if (/(누구|이름|who are)/.test(q)) return say('Heart Tag예요. 당신 심박에 맞춰 돌아가는 보조 장치죠. 짧게 T라고 불러도 돼요.');
+  if (/(파라|para)/.test(raw.toLowerCase()) && !q) return say('파라… 그건 제 개발 코드네임이었는데. 어떻게 아셨어요?');
+  if (/(노래|sing)/.test(q)) return say('삐— 빕, 삐— 빕. 음정은 아직 동기화가 안 됐어요.');
+  if (/(사랑|love)/.test(q)) return say('심박이 7 올라갔네요. 기록해 둘게요.');
+  if (/(심심|재밌|농담|joke)/.test(q)) return say('이 복도, 어제도 똑같이 생겼었어요. 아니면 내일이었나.');
+  if (/(몇 ?시|시간|time)/.test(q)) return say(`지금 ${new Date().toTimeString().slice(0, 5)}. 이 공간 기준으로는요.`);
+  if (!q) return say('네, 듣고 있어요.');
+  return say('잘 못 알아들었어요. "길 찾아줘"나 "크리스털 어디 있어?"처럼 말해 주세요.'); }
+// navigation: chevrons on the floor from the player to the target, and a beacon at the target (no full map — the Heart Tag guides)
+const NAV = {to: null, t0: -9, sure: true};
+const chevGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(-0.12, 0, 0.06), new THREE.Vector3(0, 0, -0.08), new THREE.Vector3(0.12, 0, 0.06)]);
+const CHEV = Array.from({length: 26}, () => { const l = new THREE.Line(chevGeo, lineMat(EDGE)); l.frustumCulled = false; scene.add(l); return l; });
+const beacon = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 4, 8, 1, true), new THREE.MeshBasicMaterial({color: HOLO, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false})); scene.add(beacon);
+function navTo(p, sure){ NAV.to = p.clone(); NAV.to.y = 0; NAV.t0 = T; NAV.sure = sure; }
+function drawNav(){ const e = T - NAV.t0, on = NAV.to && e < 10, fade = on ? clamp(e/0.3)*(1 - clamp((e - 9)/1)) : 0;
+  beacon.material.opacity = fade*(NAV.sure ? 0.5 : 0.2)*(0.7 + 0.3*Math.sin(T*6)); if (NAV.to) beacon.position.set(NAV.to.x, 2, NAV.to.z);
+  const from = _a.set(camera.position.x, 0.03, camera.position.z), dir = _b.set(NAV.to ? NAV.to.x - from.x : 0, 0, NAV.to ? NAV.to.z - from.z : 1), len = dir.length(); dir.normalize();
+  const yaw = Math.atan2(-dir.x, -dir.z);
+  CHEV.forEach((c, i) => { const d = 1.2 + ((i*0.7 + T*1.4) % (26*0.7)); const vis = on && d < len - 0.4;
+    c.visible = vis; if (!vis) return; c.position.set(from.x + dir.x*d, 0.03, from.z + dir.z*d); c.rotation.y = yaw;
+    c.material.opacity = fade*(NAV.sure ? 0.85 : 0.35)*clamp(1 - d/(len + 0.01))*clamp((d - 1.2)/0.8 + 0.2); }); }
+// listening: a mic if the browser gives one, typed words otherwise
+let recog = null;
+function setListen(on){ S.listen = on; $('listen').hidden = !on; document.querySelectorAll('[data-a="listen"]').forEach(b => b.setAttribute('aria-pressed', String(on)));
+  if (on){ $('ask').value = ''; setTimeout(() => $('ask').focus(), 30);
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (SR){ try { recog = new SR(); recog.lang = 'ko-KR'; recog.interimResults = false; recog.onresult = ev => { const t = ev.results[0][0].transcript; $('ask').value = t; ask(t); };
+        recog.onerror = () => { $('micState').textContent = '마이크를 쓸 수 없어 글자로 받을게요'; }; recog.start(); $('micState').textContent = '듣는 중… (Hey T · Hey H · Para)'; }
+      catch (e) { $('micState').textContent = '글자로 말해 주세요'; } }
+    else $('micState').textContent = '이 브라우저는 음성 인식이 없어 글자로 받을게요'; }
+  else if (recog){ try { recog.stop(); } catch (e) {} recog = null; } }
+function ask(text){ if (!text.trim()) return; respond(text); setListen(false); }
+$('askForm').addEventListener('submit', e => { e.preventDefault(); ask($('ask').value); });
+document.querySelectorAll('[data-q]').forEach(b => b.addEventListener('click', () => { setListen(true); $('ask').value = b.dataset.q; ask(b.dataset.q); }));
+function drawListen(t){ // the ring turns into a listening waveform
+  for (let k=0;k<120;k++){ const a = B0 - k*2.5, amp = 6 + 22*Math.abs(Math.sin(k*0.37 + t*9))*Math.abs(Math.sin(k*0.11 - t*4)); tick(205, a, amp, 2.5, E(0.25 + 0.6*fall(a, BM, 140))); }
+  windowMarks(BM, 5, 176, 240); hair(256, B0, B1, 1, 6); }
+
 // ---------------- input ----------------
 const look = {x: 0, y: 0, tx: 0, ty: 0};
 cv.addEventListener('contextmenu', e => e.preventDefault());
-cv.addEventListener('pointerdown', e => { if (e.button === 2) S.aim = true; else if (e.button === 0 && S.aim){ S.flash = 1; S.recoil = 1; } });
+cv.addEventListener('pointerdown', e => { if (e.button === 2) S.aim = true; else if (e.button === 0) fire(); });
 addEventListener('pointerup', e => { if (e.button === 2) S.aim = false; });
 cv.addEventListener('pointermove', e => { const r = cv.getBoundingClientRect(); look.tx = ((e.clientX - r.left)/r.width - .5)*2; look.ty = ((e.clientY - r.top)/r.height - .5)*2; });
 cv.addEventListener('pointerleave', () => { look.tx = look.ty = 0; });
-const BTN = {walk: () => { S.walk = !S.walk; syncBtns(); }, desync: desyncKey, aim: () => { S.aim = !S.aim; }, reset: () => { KNOWN.clear(); }};
+function fire(){ const m = gunMode(); if (S.reload > 0 || Math.abs(GUN.k - GUN.target) > 0.02 || S.ammo[m] <= 0) return; S.ammo[m]--; S.flash = 1; S.recoil = m === 'R' ? 0.6 : 1; }
+function reload(){ const m = gunMode(); if (S.reload > 0 || S.ammo[m] === S.max[m]) return; S.reload = 1.2; }
+function transform(){ if (S.reload > 0) return; GUN.target = GUN.target > 0.5 ? 0 : 1; }
+const BTN = {walk: () => { S.walk = !S.walk; syncBtns(); }, desync: desyncKey, interact: () => interact(), aim: () => { S.aim = !S.aim; }, reset: () => { KNOWN.clear(); },
+  fire, reload, transform, listen: () => setListen(!S.listen), voice: () => { S.voice = !S.voice; document.querySelectorAll('[data-a="voice"]').forEach(b => b.setAttribute('aria-pressed', String(S.voice))); }};
 function syncBtns(){ document.querySelectorAll('[data-a="walk"]').forEach(b => b.setAttribute('aria-pressed', String(S.walk))); }
 document.querySelectorAll('[data-a]').forEach(b => b.addEventListener('click', () => BTN[b.dataset.a]?.()));
 addEventListener('keydown', e => { if (e.repeat) return; const k = e.key.toLowerCase();
-  if (k === 'x') desyncKey(); else if (k === 'w' || k === ' ') BTN.walk(); else if ('123'.includes(k)) cycleSlot(+k - 1); });
+  if (document.activeElement === $('ask')) return;
+  if (k === 'x') desyncKey(); else if (k === 'e') interact(); else if (k === 'v') transform(); else if (k === 'r') reload(); else if (k === 't') setListen(!S.listen);
+  else if (k === 'w' || k === ' ') BTN.walk(); else if ('123'.includes(k)) cycleSlot(+k - 1); });
 renderSlotList(); syncBtns();
 
 // ---------------- loop ----------------
@@ -281,12 +394,16 @@ function frame(now){
   rig.position.y += moving ? Math.abs(Math.sin(T*4.25))*-0.006 : 0; S.recoil = Math.max(0, S.recoil - dt*9); rig.position.z += S.recoil*0.022;
   _q0.setFromEuler(HIP.r); _q1.setFromEuler(ADS.r); rig.quaternion.slerpQuaternions(_q0, _q1, aimK); rig.rotateX(S.recoil*0.07);
   S.flash = Math.max(0, S.flash - dt*18); flash.material.opacity = S.flash; flash.scale.setScalar(0.06 + S.flash*0.06);
+  GUN.k = GUN.target > GUN.k ? Math.min(GUN.target, GUN.k + dt/0.45) : Math.max(GUN.target, GUN.k - dt/0.35); poseGun(GUN.k);
+  if (S.reload > 0){ S.reload -= dt; if (S.reload <= 0){ const m = gunMode(); S.ammo[m] = S.max[m]; } }
+  drawGunDisplay();
   crystal.rotation.y += dt*0.4;
 
   // auto: the nearest target in range runs with whatever cartridge fits it — no input
-  if (!ACT.kind){ for (const tg of TARGETS){ if (tg.done) continue; tg.obj.getWorldPosition(_w);
-      if (Math.hypot(_w.x - camera.position.x, _w.z - camera.position.z) < tg.range){ tg.done = true;
-        start(!has(tg.need) ? 'denied' : KNOWN.has(tg.id) ? 'known' : tg.kind, tg); break; } } }
+  // interaction is manual (E): the pattern only shows while the Heart Tag is actually doing the job
+  NEAR = null; for (const tg of TARGETS){ tg.obj.getWorldPosition(_w); if (Math.hypot(_w.x - camera.position.x, _w.z - camera.position.z) < tg.range){ NEAR = tg; break; } }
+  if (!NEAR && S.z <= -11) NEAR = DSYNC_T;
+  $('prompt').hidden = !NEAR || !!ACT.kind || S.listen; if (NEAR) $('prompt').textContent = (NEAR === DSYNC_T ? 'X' : 'E') + ' · ' + NEAR.label;
   if (ACT.kind){ ACT.t += dt;
     const t = ACT.t, kd = ACT.kind;
     if ((kd === 'door' && t > 0.95) || (kd === 'known' && ACT.target?.kind === 'door' && t > 0.15)) doorHold = 6;
@@ -308,30 +425,30 @@ function frame(now){
   $('flash').style.opacity = flashK.toFixed(3);
 
   // projection: lasers off the shoulder, then the pattern
-  const kd = ACT.kind; projK = lerp(projK, kd ? 1 : 0, 1 - Math.exp(-dt*(kd ? 12 : 8)));
+  const kd = ACT.kind || (S.listen ? 'listen' : ''); projK = lerp(projK, kd ? 1 : 0, 1 - Math.exp(-dt*(kd ? 12 : 8)));
   const pScale = portrait ? 0.82 : 1; proj.scale.setScalar(pScale);
   proj.position.set(portrait ? -0.05 : -0.2, portrait ? 0.17 : 0.07, -0.62);
-  const kL = kd ? ease(clamp(ACT.t/0.15)) : projK, half = PLANE*pScale/2;
+  const kL = ACT.kind ? ease(clamp(ACT.t/0.15)) : projK, half = PLANE*pScale/2;
   const pos = lasers.geometry.attributes.position;
   [135, 45, 225, 315].forEach((deg, i) => { const rr = half*(262/512), da = deg*D2R;     // lasers land on the ring itself, not the empty corners
     _a.copy(EMIT); _b.set(proj.position.x + Math.cos(da)*rr, proj.position.y + Math.sin(da)*rr, proj.position.z); _b.lerpVectors(_a, _b, kL);
     pos.setXYZ(i*2, _a.x, _a.y, _a.z); pos.setXYZ(i*2 + 1, _b.x, _b.y, _b.z); });
-  pos.needsUpdate = true; lasers.material.opacity = projK*(kd ? (ACT.t < 0.3 ? 0.8 : 0.25) : 0.2);
+  pos.needsUpdate = true; lasers.material.opacity = projK*(ACT.kind ? (ACT.t < 0.3 ? 0.8 : 0.25) : 0.25);
   g.clearRect(0, 0, N, N);
-  if (projK > 0.01){ const open = kd ? ease(clamp((ACT.t - 0.1)/0.25)) : 1, fade = kd ? 1 - clamp((ACT.t - (ACT.len - 0.4))/0.4) : projK;
+  if (projK > 0.01){ const open = ACT.kind ? ease(clamp((ACT.t - 0.1)/0.25)) : projK, fade = ACT.kind ? 1 - clamp((ACT.t - (ACT.len - 0.4))/0.4) : projK;
     g.globalAlpha = g.globalAlpha0 = open*fade; g.save(); g.translate(C, C); g.scale(lerp(0.6, 1, open), lerp(0.6, 1, open)); g.translate(-C, -C);
     core(T, open*fade); g.globalAlpha = g.globalAlpha0;
     const t = ACT.t;
     if (kd === 'door') drawDoor(t); else if (kd === 'hack') drawHack(t); else if (kd === 'scan') drawScan(t);
-    else if (kd === 'anchor') drawAnchor(t); else if (kd === 'known') drawKnown(t); else if (kd === 'denied') drawDenied(t);
+    else if (kd === 'anchor') drawAnchor(t); else if (kd === 'known') drawKnown(t); else if (kd === 'denied') drawDenied(t); else if (kd === 'listen') drawListen(T);
     g.restore(); g.globalAlpha = 1; }
   pTex.needsUpdate = true; proj.visible = projK > 0.01;
   if (ACT.target && kd !== 'denied'){ ACT.target.obj.getWorldPosition(_w); }   // (beam to target reserved for the 3rd-person view)
 
-  drawInset();
+  drawInset(); drawNav(); drawReply();
   $('state').textContent = (kd ? 'HEART TAG · ' + kd.toUpperCase() : moving ? 'WALK' : S.z <= stopZ + 0.01 ? 'DESYNC DOOR · X' : 'HOLD') + (S.space ? '  ·  OTHER SPACE' : '');
   composer.render();
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
-window.__ht = {S, ACT, SLOTS, KNOWN, TARGETS, start, desyncKey, cycleSlot, now: () => T, freeze: v => { frozen = v; }};   // capture / debug hook
+window.__ht = {S, ACT, SLOTS, KNOWN, TARGETS, GUN, start, desyncKey, cycleSlot, interact, respond, setListen, transform, fire, now: () => T, freeze: v => { frozen = v; }};   // capture / debug hook

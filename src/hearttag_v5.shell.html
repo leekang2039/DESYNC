@@ -43,30 +43,57 @@ kbd{font:400 11px var(--f-mono);color:var(--muted);margin-left:6px}
 @media (min-width: 900px){ .wrap{height:100vh;flex-wrap:nowrap} .stage{min-height:0} .rail{overflow-y:auto;max-width:380px} }
 #ht{position:absolute;left:12px;bottom:12px;width:220px;height:220px;cursor:pointer;touch-action:none}
 #flash{position:absolute;inset:0;background:#fff3e0;opacity:0;pointer-events:none}
-@media (max-width: 899px){ #ht{width:150px;height:150px;bottom:86px;left:8px} }
+#prompt{position:absolute;left:50%;top:58%;transform:translateX(-50%);font:400 13px var(--f-mono);letter-spacing:.2em;color:var(--holo);padding:6px 12px;border:1px solid rgba(120,236,214,.4);background:rgba(5,8,11,.5);pointer-events:none}
+#reply{position:absolute;left:244px;bottom:24px;max-width:min(520px,calc(100% - 270px));font:500 15px/1.5 var(--f-display);color:#e6fff9;text-shadow:0 0 10px rgba(120,236,214,.6);padding:10px 14px;border-left:2px solid var(--holo);background:linear-gradient(90deg,rgba(5,12,14,.75),rgba(5,12,14,0));pointer-events:none}
+[hidden]{display:none!important}
+#listen{position:absolute;left:244px;bottom:96px;width:min(440px,calc(100% - 270px));display:flex;flex-direction:column;gap:8px;padding:12px;border:1px solid rgba(120,236,214,.45);background:rgba(5,10,12,.82)}
+#listen form{display:flex;gap:8px}
+#ask{flex:1;min-width:0;height:44px;padding:0 12px;border:1px solid #2a3a40;background:#081014;color:#e6fff9;font:500 14px var(--f-display)}
+#ask:focus-visible{outline:2px solid var(--holo);outline-offset:1px}
+#micState{font:400 11px var(--f-mono);letter-spacing:.12em;color:var(--muted)}
+.qs{display:flex;flex-wrap:wrap;gap:6px}.qs button{height:36px;font-size:12px}
+@media (max-width: 899px){ #ht{width:150px;height:150px;bottom:86px;left:8px} #reply{left:12px;right:12px;max-width:none;bottom:250px} #listen{left:12px;right:12px;width:auto;bottom:86px} }
 </style>
 <div class="wrap">
   <div class="stage">
     <canvas id="c" aria-label="1인칭 Heart Tag 프로토타입"></canvas>
     <canvas id="ht" aria-label="Heart Tag 카트리지 슬롯 (누르면 교체)"></canvas>
     <div id="flash"></div>
+    <div id="prompt" hidden></div>
+    <div id="reply" hidden aria-live="polite"></div>
+    <div id="listen" hidden>
+      <div id="micState">듣는 중…</div>
+      <form id="askForm"><input id="ask" autocomplete="off" placeholder="예: 크리스털 어디 있어? / 탈출구 길 찾아줘"><button type="submit">말하기</button></form>
+      <div class="qs"><button type="button" data-q="Hey T, 탈출구 길 찾아줘">탈출구 길</button><button type="button" data-q="크리스털 어디 있어?">크리스털 어디</button><button type="button" data-q="단말 정보 알려줘">단말 정보</button><button type="button" data-q="Para?">Para?</button></div>
+    </div>
     <div class="tag" id="state">WALK</div>
     <div id="fallback" hidden></div>
     <div class="dock" aria-label="터치 조작">
       <button data-a="walk" aria-pressed="true">이동</button>
-      <button data-a="desync">DESYNC 키</button>
-      <button data-a="aim">조준</button>
-      <button data-a="reset">기록 초기화</button>
+      <button data-a="interact">상호작용</button>
+      <button data-a="listen" aria-pressed="false">청음</button>
+      <button data-a="fire">사격</button>
+      <button data-a="transform">변형</button>
+      <button data-a="reload">재장전</button>
+      <button data-a="desync">DESYNC</button>
     </div>
   </div>
   <aside class="rail">
     <h1>Heart Tag 카트리지</h1>
-    <p>팔찌 없이 어깨의 Heart Tag 하나로 갑니다. 카트리지 세 개를 꽂고 걸어가면, 가까워진 문·단말·물체를 Heart Tag가 알아서 해독하고 패턴을 어깨 너머로 투사해요. 누를 것이 없어서 반복도 없고, 그냥 보는 즐거움만 남겨요.</p>
-    <p style="font-size:12px">이동 = W/스페이스 · 카트리지 교체 = 1/2/3 또는 왼쪽 아래 Heart Tag의 칸 누르기 · 복도 끝 DESYNC 문에서 X · 우클릭 조준.</p>
+    <p>팔찌 없이 어깨의 Heart Tag 하나로 갑니다. 대상 앞에서 상호작용하면 장착한 카트리지로 Heart Tag가 일을 하고, 그동안 어깨 너머로 패턴이 떠서 "지금 하고 있다"를 보여줘요. 전체 지도 대신 Heart Tag에게 말을 걸면 길을 바닥에 표시해 줘요.</p>
+    <p style="font-size:12px">W/스페이스 이동 · E 상호작용 · T 청음(“Hey T / Hey H / Para”) · V 총 변형(권총 ↔ 소총) · 클릭 사격 · R 재장전 · 1/2/3 카트리지 교체 · 복도 끝에서 X.</p>
 
     <div class="lab">조작</div>
     <div class="row">
       <button data-a="walk" aria-pressed="true">이동<kbd>W</kbd></button>
+      <button data-a="interact">상호작용<kbd>E</kbd></button>
+      <button data-a="listen" aria-pressed="false">청음<kbd>T</kbd></button>
+      <button data-a="voice" aria-pressed="true">음성 응답</button>
+    </div>
+    <div class="row">
+      <button data-a="fire">사격<kbd>LMB</kbd></button>
+      <button data-a="transform">총 변형<kbd>V</kbd></button>
+      <button data-a="reload">재장전<kbd>R</kbd></button>
       <button data-a="desync">DESYNC 키<kbd>X</kbd></button>
       <button data-a="reset">해독 기록 초기화</button>
     </div>
@@ -74,13 +101,25 @@ kbd{font:400 11px var(--f-mono);color:var(--muted);margin-left:6px}
     <div class="lab">카트리지 슬롯 (누르면 교체)</div>
     <div class="row" id="slots"></div>
 
-    <div class="lab">자동으로 일어나는 일</div>
+    <div class="lab">상호작용 (E) — 하는 동안만 패턴</div>
     <div class="seq">
-      <span>PULSE</span><span>물체 근처: 눈금 휠 패턴이 돌다 멈추며 식별 → 물체에 윤곽선</span>
-      <span>DECODER</span><span>문 근처: 텀블러 트랙 4줄이 창에 맞물리며 문이 열림 · 단말 근처: 암호 트랙 3줄 → 화면 점등</span>
-      <span>ANCHOR</span><span>복도 끝 DESYNC 문에서 X: 좌표 고리 두 개가 반대로 돌다 맞물리고 접혀 들어가며 문이 열려 다른 공간으로</span>
-      <span>이미 해독</span><span>고리 하나가 창을 스쳐 지나가는 0.5초 표시만</span>
-      <span>카트리지 없음</span><span>패턴이 더듬다 꺼짐 (문은 잠긴 채)</span>
+      <span>PULSE</span><span>물체: 눈금 휠이 돌다 멈추며 식별 → 윤곽선 · 식별하면 Heart Tag가 정보를 기억</span>
+      <span>DECODER</span><span>문: 텀블러 트랙 4줄 → 열림 · 단말: 암호 트랙 3줄 → 화면 점등</span>
+      <span>ANCHOR</span><span>DESYNC 문(X): 좌표 고리 두 개가 맞물리고 접혀 다른 공간으로</span>
+      <span>이미 해독</span><span>고리 하나만 0.5초</span>
+    </div>
+    <div class="lab">청음 (T) — Heart Tag에게 말하기</div>
+    <div class="seq">
+      <span>길 찾아줘</span><span>바닥에 화살표 + 목적지 빛기둥 (전체 지도 없음)</span>
+      <span>○○ 어디 있어?</span><span>분석한 대상이면 정확히 표시, 아니면 대략적 방향만 → 탐험 동기</span>
+      <span>○○ 정보</span><span>분석한 것만 설명서처럼 알려줌</span>
+      <span>이스터에그</span><span>누구야 · Para · 노래 · 농담 · 몇 시 …</span>
+      <span>마이크</span><span>브라우저가 허용하면 음성 인식, 아니면 글자 입력 (미리보기 화면에선 글자)</span>
+    </div>
+    <div class="lab">총 (V) — 원할 때 직접 변형</div>
+    <div class="seq">
+      <span>권총 → 소총</span><span>덮개가 밀려 나오며 총열 연장 → 레일 내려옴 → 개머리판이 프레임 아래서 뒤로 펼쳐짐 → 조준경이 일어섬 → 탄창 연장 (0.45초, 변형 중 사격 불가)</span>
+      <span>잔탄</span><span>슬라이드 뒤 작은 표시창: 숫자 · PST/RFL · /15·/30 · 막대 (모드별 탄창 따로)</span>
     </div>
     <div class="lab">투사</div>
     <div class="seq">
