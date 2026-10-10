@@ -1,6 +1,6 @@
 // Heart Tag · Wrist HUD v4 — source. Built into HeartTag_WristHUD_v4.html (three.js inlined, opens offline)
 // by `node src/build_wrist_hud_v4.mjs`.
-// v4: minimal two-hairline arc HUD beside the right wrist while aiming; door / hack / scan keys make the
+// v4: minimal single-arc HUD beside the right wrist while aiming; door / hack / scan keys make the
 // bracelet itself put out the UI + effect (wrist turns up, seams go cyan, rings play around the cuff).
 import * as THREE from 'three';
 import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
@@ -24,8 +24,8 @@ let renderer;
 try { renderer = new THREE.WebGLRenderer({canvas: $('c'), antialias: true}); }
 catch (e) { fail('WebGL을 시작할 수 없어요. 하드웨어 가속을 켠 브라우저(Chrome/Edge)에서 열어 주세요.'); throw e; }
 const cv = $('c'), stage = cv.parentElement;
-renderer.setPixelRatio(Math.min(2, devicePixelRatio));
-renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.05;
+renderer.setPixelRatio(Math.min(1.5, devicePixelRatio));
+renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.15;
 
 const scene = new THREE.Scene(); scene.background = new THREE.Color(0x05080b); scene.fog = new THREE.FogExp2(0x05080b, 0.055);
 scene.environment = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(), 0.04).texture;
@@ -40,7 +40,7 @@ const cuffGlow = new THREE.PointLight(HOLO, 0, 0.6, 2); camera.add(cuffGlow);   
 
 const composer = new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
-const bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.7, 0.4, 0.82); composer.addPass(bloom);
+const bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.65, 0.4, 0.9); composer.addPass(bloom);
 composer.addPass(new OutputPass());
 
 // ---------------- environment: dark service hall (blockout) ----------------
@@ -111,7 +111,7 @@ const flash = new THREE.Sprite(new THREE.SpriteMaterial({map: flashT, transparen
 const cuff = new THREE.Group(); cuff.position.z = 0.065; rig.add(cuff);
 const CR = 0.05, CL = 0.066, NS = 14, sw = 2*Math.PI*CR/NS;
 const core = new THREE.Mesh(new THREE.CylinderGeometry(CR - 0.004, CR - 0.004, CL, 40, 1, true), M(0x0c0e11, .6, .3, {side: THREE.DoubleSide})); core.rotation.x = Math.PI/2; cuff.add(core);
-const armorM = new THREE.MeshPhysicalMaterial({color: 0xc9ced3, roughness: .42, metalness: .05, clearcoat: .35, clearcoatRoughness: .4});
+const armorM = new THREE.MeshPhysicalMaterial({color: 0xb3b9bf, roughness: .5, metalness: .05, clearcoat: .35, clearcoatRoughness: .4});
 const armorM2 = new THREE.MeshPhysicalMaterial({color: 0xaeb4ba, roughness: .48, metalness: .05, clearcoat: .3});
 const LED_RED = new THREE.Color(0xff2030), LED_CY = new THREE.Color(HOLO);
 const ledM = new THREE.MeshStandardMaterial({color: 0x10080a, emissive: LED_RED.clone(), emissiveIntensity: 1.5});
@@ -147,44 +147,46 @@ function text(s, x, y, size, col, align='left', glow=false){ g.font = `400 ${siz
 // ---------------- state ----------------
 const S = {aim: false, ammo: 24, max: 30, mags: 3, type: 0, reload: 0, dAmmo: 2, dMax: 2, batt: 76, mark: 2, recoil: 0, flash: 0, glitch: 0};
 const TYPES = ['STD', 'AP', 'EMP'];
-const GEAR = [{cd: 8, left: 0}, {cd: 5, left: 0}, {cd: 14, left: 0}];
+const GEAR = [{cd: 8, left: 0, ready: 0}, {cd: 5, left: 0, ready: 0}, {cd: 14, left: 0, ready: 0}];
 const ACT = {kind: '', t: 0};                       // active bracelet action: 'door' | 'hack' | 'scan'
 const ACT_LEN = {door: 2.6, hack: 3.4, scan: 3.6};
 let hudK = 0, aimK = 0, actK = 0, doorOpen = 0, doorHold = 0, hackLit = 0;
 
-// ---- aim HUD: two hairline arcs on the upper-right of the wrist + a small count ----
-const A0 = 80, A1 = 10;                             // arc window (degrees, 0 = right, 90 = up)
-const R_AMMO = 160, R_DRN = 178, R_GEAR = 194, R_SPIN = 210;
+// ---- aim HUD: one hairline arc + the count; drone / gear / mark bits surface only when they change ----
+const A0 = 62, A1 = 8;                              // arc window (degrees, 0 = right, 90 = up)
+const R_ARC = 188, R_OUT = 204;
+const PEEK = {drone: 0, mark: 0};                   // seconds left to show a contextual bit
 function drawAim(T){
-  const k = i => ease(clamp((hudK - i*0.1)/0.6));
-  const kA = k(0), kD = k(1), kG = k(2), kT = ease(clamp((hudK - 0.3)/0.5));
-  const end = (kk, a1=A1) => lerp(A0, a1, kk);
+  const kA = ease(clamp(hudK/0.55)), kT = ease(clamp((hudK - 0.25)/0.5)), aEnd = lerp(A0, A1, kA);
   const low = S.ammo <= 10 && S.reload <= 0, blink = low && Math.floor(T*4) % 2 === 0;
-  // ammo: 30 short ticks
-  const refill = S.reload > 0 ? clamp(1 - S.reload/1.4) : 1;
-  for (let i=0;i<S.max;i++){ const a = lerp(A0, A1, i/(S.max - 1)); if (a < end(kA) - 0.01) break;
-    const on = S.reload > 0 ? i/S.max < refill : i < S.ammo, head = on && S.reload <= 0 && i === S.ammo - 1;
-    tick(R_AMMO, a, head ? 12 + S.recoil*6 : 9, head ? 3 : 2, on ? (blink ? H(0.35) : head ? W(1) : E(0.9)) : H(0.14)); }
-  // drone: battery hairline + two round diamonds after it
-  const bEnd = lerp(A0, A1 + 10, S.batt/100);
-  arc(R_DRN, A0, end(kD, A1 + 10), 1.5, H(0.18)); arc(R_DRN, A0, Math.max(end(kD, A1 + 10), bEnd), 1.8, S.batt <= 20 ? W(1) : E(0.9));
-  if (kD > 0.98) for (let i=0;i<S.dMax;i++) diamond(R_DRN, A1 + 4 - i*7, 4, i < S.dAmmo, E(0.95));
-  // gear: three dots (ring fills while cooling) · marks: three tiny ticks
-  if (kG > 0.02){ GEAR.forEach((G, i) => { const a = A0 - 4 - i*8; if (a < end(kG)) return; const [x, y] = P(R_GEAR, a);
-      if (G.left > 0){ g.strokeStyle = H(0.25); g.lineWidth = 1.5; g.beginPath(); g.arc(x, y, 4.5, 0, Math.PI*2); g.stroke();
-        g.strokeStyle = E(0.95); g.beginPath(); g.arc(x, y, 4.5, -Math.PI/2, -Math.PI/2 + (1 - G.left/G.cd)*Math.PI*2); g.stroke(); }
-      else dot(R_GEAR, a, 3.6, true, E(0.95)); });
-    for (let i=0;i<3;i++){ const a = A1 + 18 - i*5; if (a < end(kG)) tick(R_GEAR, a, 8, 2, i < S.mark ? E(0.95) : H(0.18)); } }
-  // the one moving part: a short segment orbiting the window (fast on reveal, then a slow drift)
-  const spinA = lerp(A0, A1, (Math.sin(T*0.9 + (1 - kT)*6) + 1)/2), seg = 10;
-  if (kT > 0.01) glowArc(R_SPIN, Math.min(A0, spinA + seg/2), Math.max(A1, spinA - seg/2), 1.4, kT);
-  tick(R_SPIN, A0 + 3, 10, 1, H(0.5*kT)); tick(R_SPIN, A1 - 3, 10, 1, H(0.5*kT));
+  const frac = S.reload > 0 ? clamp(1 - S.reload/1.4) : S.ammo/S.max, aAmmo = lerp(A0, A1, frac), fillEnd = Math.max(aEnd, aAmmo);
+  // the arc: dim track + bright remaining-ammo line + a notch at the next round
+  arc(R_ARC, A0, aEnd, 1, H(0.16));
+  if (frac > 0){ arc(R_ARC, A0, fillEnd, 7, H(0.07)); arc(R_ARC, A0, fillEnd, 2, blink ? H(0.4) : E(0.95)); }
+  if (kA > 0.98 && frac > 0 && S.reload <= 0) tick(R_ARC, aAmmo, 10 + S.recoil*8, 2, W(1));
+  if (hudK < 1) dot(R_ARC, aEnd, 3, true, W(0.9));                     // spark that draws the arc open
+  tick(R_ARC, A0 + 2.5, 8, 1, H(0.5*kT));
   // count
-  if (kT > 0){ g.globalAlpha = kT; const [x, y] = P(R_AMMO + 8, A1 - 14);
+  if (kT > 0){ g.globalAlpha = kT; const [x, y] = P(R_ARC + 10, A1 - 13);
     const n = S.reload > 0 ? '--' : String(S.ammo).padStart(2, '0'), jx = S.glitch > 0 ? (Math.random() - .5)*6 : 0;
-    text(n, x + jx, y + 8, 52, blink ? H(0.5) : W(1), 'left', true);
-    text('×' + S.mags + '  ' + TYPES[S.type], x + 2, y + 44, 20, S.type ? E(1) : H(0.75));
-    g.globalAlpha = 1; } }
+    text(n, x + jx, y + 6, 46, blink ? H(0.5) : W(1), 'left', true);
+    text('×' + S.mags + (S.type ? '  ' + TYPES[S.type] : ''), x + 2, y + 36, 18, S.type ? E(1) : H(0.7));
+    g.globalAlpha = 1; }
+  // drone: outer hairline (battery) + rounds, only after a drone shot or when the battery is low
+  const dA = Math.max(clamp(PEEK.drone/0.4), S.batt <= 20 ? 1 : 0)*kT;
+  if (dA > 0){ g.globalAlpha = dA; const aB = A1 + 12;
+    arc(R_OUT, A0, aB, 1, H(0.2)); arc(R_OUT, A0, lerp(A0, aB, S.batt/100), 1.4, S.batt <= 20 ? W(1) : E(0.9));
+    for (let i=0;i<S.dMax;i++) diamond(R_OUT, aB - 4 - i*6, 3.4, i < S.dAmmo, E(0.95)); g.globalAlpha = 1; }
+  // gear: a dot above the arc only while that gear is cooling (ring fills), blinks once when ready
+  GEAR.forEach((G, i) => { if (G.left <= 0 && G.ready <= 0) return; const a = A0 + 9 + i*7, [x, y] = P(R_ARC, a);
+    g.globalAlpha = kT;
+    if (G.left > 0){ g.strokeStyle = H(0.25); g.lineWidth = 1.3; g.beginPath(); g.arc(x, y, 4, 0, Math.PI*2); g.stroke();
+      g.strokeStyle = E(0.95); g.beginPath(); g.arc(x, y, 4, -Math.PI/2, -Math.PI/2 + (1 - G.left/G.cd)*Math.PI*2); g.stroke(); }
+    else dot(R_ARC, a, 3.4, true, W(Math.floor(G.ready*8) % 2 ? 1 : 0.3));
+    g.globalAlpha = 1; });
+  // marks: three ticks on the outer line for a moment after marking
+  const mA = clamp(PEEK.mark/0.4)*kT;
+  if (mA > 0){ g.globalAlpha = mA; for (let i=0;i<3;i++) tick(R_OUT, A0 - 4 - i*5, 8, 2, i < S.mark ? E(0.95) : H(0.2)); g.globalAlpha = 1; } }
 
 // ---- bracelet actions: full rings around the cuff, read-out to the right ----
 const HEX = '0123456789ABCDEF';
@@ -231,19 +233,19 @@ function drawMark(n){ const m = markC.getContext('2d'); m.clearRect(0, 0, 256, 2
   m.font = `400 26px ${MONO}`; m.fillStyle = W(1); m.textAlign = 'center'; m.fillText('MK ' + n, 128, 250); markT.needsUpdate = true; }
 
 // ---------------- input ----------------
-function setAim(on){ if (on && ACT.kind) return; S.aim = on; $('bAim').setAttribute('aria-pressed', String(on)); $('xh').classList.toggle('ads', on); }
+function setAim(on){ if (on && ACT.kind) return; S.aim = on; document.querySelectorAll('[data-a="aim"]').forEach(b => b.setAttribute('aria-pressed', String(on))); $('xh').classList.toggle('ads', on); }
 function fire(){ if (!S.aim || S.reload > 0 || S.ammo <= 0) return; S.ammo--; S.recoil = 1; S.flash = 1; S.glitch = 0.08; tr.t = 0.07; }
 function reload(){ if (S.reload > 0 || S.mags <= 0 || S.ammo === S.max) return; S.reload = 1.4; S.mags--; }
 const cycleType = () => { S.type = (S.type + 1) % 3; S.glitch = 0.12; };
-const mark = () => { S.mark = S.mark >= 3 ? 0 : S.mark + 1; drawMark(S.mark); };
-const droneFire = () => { if (S.dAmmo > 0){ S.dAmmo--; S.batt = Math.max(0, S.batt - 6); dtr.t = 0.12; } else S.dAmmo = S.dMax; };
+const mark = () => { S.mark = S.mark >= 3 ? 0 : S.mark + 1; PEEK.mark = 2; drawMark(S.mark); };
+const droneFire = () => { PEEK.drone = 2.5; if (S.dAmmo > 0){ S.dAmmo--; S.batt = Math.max(0, S.batt - 6); dtr.t = 0.12; } else S.dAmmo = S.dMax; };
 const gear = i => { if (GEAR[i].left <= 0) GEAR[i].left = GEAR[i].cd; };
 function act(kind){ if (ACT.kind) return; ACT.kind = kind; ACT.t = 0; setAim(false); }
 const tr = {t: 0}, dtr = {t: 0};
-$('bAim').onclick = () => setAim(!S.aim); $('bFire').onclick = () => { if (!S.aim) setAim(true); fire(); };
-$('bReload').onclick = reload; $('bType').onclick = cycleType; $('bMark').onclick = mark; $('bDrone').onclick = droneFire;
-$('bDoor').onclick = () => act('door'); $('bHack').onclick = () => act('hack'); $('bScan').onclick = () => act('scan');
-document.querySelectorAll('[data-g]').forEach(b => b.onclick = () => gear(+b.dataset.g));
+// buttons (side rail on desktop, the on-screen dock on phones) share data-a names
+const BTN = {aim: () => setAim(!S.aim), fire: () => { if (!S.aim) setAim(true); fire(); }, reload, type: cycleType, mark, drone: droneFire,
+  door: () => act('door'), hack: () => act('hack'), scan: () => act('scan'), g0: () => gear(0), g1: () => gear(1), g2: () => gear(2)};
+document.querySelectorAll('[data-a]').forEach(b => b.addEventListener('click', () => BTN[b.dataset.a]?.()));
 cv.addEventListener('contextmenu', e => e.preventDefault());
 cv.addEventListener('pointerdown', e => { if (e.button === 2) setAim(true); else if (e.button === 0) fire(); });
 addEventListener('pointerup', e => { if (e.button === 2) setAim(false); });
@@ -272,7 +274,8 @@ function frame(now){
   const dt = Math.min(0.05, (now - last)/1000); last = now; T += dt;
   if (S.reload > 0){ S.reload -= dt; if (S.reload <= 0){ S.ammo = S.max; S.glitch = .1; } }
   S.recoil = Math.max(0, S.recoil - dt*9); S.flash = Math.max(0, S.flash - dt*18); S.glitch = Math.max(0, S.glitch - dt);
-  GEAR.forEach(G => G.left = Math.max(0, G.left - dt));
+  GEAR.forEach(G => { if (G.left > 0 && G.left <= dt) G.ready = 0.8; G.left = Math.max(0, G.left - dt); G.ready = Math.max(0, G.ready - dt); });
+  PEEK.drone = Math.max(0, PEEK.drone - dt); PEEK.mark = Math.max(0, PEEK.mark - dt);
   if (ACT.kind){ ACT.t += dt; if (ACT.t > ACT_LEN[ACT.kind]) ACT.kind = ''; }
 
   // pose blend: hip ↔ ads, then ↔ wrist-up while the bracelet is working
@@ -281,18 +284,19 @@ function frame(now){
   aimK = lerp(aimK, S.aim ? 1 : 0, 1 - Math.exp(-dt*14));
   actK = lerp(actK, ACT.kind ? 1 : 0, 1 - Math.exp(-dt*(ACT.kind ? 9 : 6)));
   hudK = clamp(hudK + (S.aim ? dt/0.4 : -dt/0.16));
-  camera.fov = lerp(55, 47, aimK); camera.updateProjectionMatrix();
+  const portrait = camera.aspect < 1, nar = portrait ? 0.18 : clamp(camera.aspect/1.6, 0.42, 1);   // phones: wider view, arm pulled in so cuff + arcs stay on screen
+  const fov0 = portrait ? 66 : 55; camera.fov = lerp(fov0, fov0 - 8, aimK); camera.updateProjectionMatrix();
   _p.lerpVectors(POSE.hip.p, POSE.ads.p, aimK).lerp(POSE.wrist.p, actK);
   _q[0].setFromEuler(POSE.hip.r); _q[1].setFromEuler(POSE.ads.r); _q[2].setFromEuler(POSE.wrist.r);
   _qa.slerpQuaternions(_q[0], _q[1], aimK).slerp(_q[2], actK);
   const sway = RM ? 0 : (1 - aimK*0.75);
-  rig.position.copy(_p);
+  rig.scale.setScalar(portrait ? 0.44 : 0.62); rig.position.copy(_p); rig.position.x *= nar; if (portrait) rig.position.y += 0.02;
   rig.position.x += Math.sin(T*1.1)*0.003*sway - (look.tx - look.x)*0.02; rig.position.y += Math.sin(T*2.2)*0.002*sway + (look.ty - look.y)*0.015;
   const rl = S.reload > 0 ? Math.sin(clamp(1 - S.reload/1.4)*Math.PI) : 0;
   rig.position.z += S.recoil*0.022; rig.position.y -= rl*0.05;
   rig.quaternion.copy(_qa); rig.rotateX(S.recoil*0.07 - rl*0.35); rig.rotateZ(rl*0.5);
   wrist.quaternion.copy(rig.quaternion).invert();                  // display faces the eye, centred on the cuff
-  wrist.scale.setScalar(lerp(1.06, 1.5, actK));                     // action rings sit clear of the (closer) cuff
+  wrist.scale.setScalar(lerp(1.0, 1.35, actK)*(portrait ? lerp(1.55, 1.25, actK) : 1));                     // action rings sit clear of the (closer) cuff
   flash.material.opacity = S.flash; flash.material.rotation = Math.random()*6; flash.scale.setScalar(0.06 + S.flash*0.06);
   crystal.rotation.y += dt*0.4;
 
