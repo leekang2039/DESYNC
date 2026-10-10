@@ -260,56 +260,52 @@ const EMIT_R = 158, EMIT_A = 30;                      // laser emitter on the cu
 function laser(x1, y1, k, al){ if (k <= 0) return; const [ex, ey] = P(EMIT_R, EMIT_A), x = lerp(ex, x1, k), y = lerp(ey, y1, k);
   g.strokeStyle = W(al); g.lineWidth = 1; g.beginPath(); g.moveTo(ex, ey); g.lineTo(x, y); g.stroke();
   if (k < 1){ g.fillStyle = W(al); g.beginPath(); g.arc(x, y, 2.2, 0, Math.PI*2); g.fill(); } }
+// ---- aim HUD in the map's tone, minimal: four lasers off the cuff → corner brackets → a gridded glass pane opens → the figure ----
 function drawAim(T){
   if (hudK <= 0) return;
-  // deploy clock, same order as the map: lasers → arc / corner brackets → glass panel opens vertically → contents
   const e = T - AIMD.t0, vis = clamp(hudK/0.25);
-  const kL = ease(clamp(e/0.18)), kArc = ease(clamp((e - 0.12)/0.3)), kB = ease(clamp((e - 0.14)/0.2)), kG = ease(clamp((e - 0.26)/0.22)), kT = ease(clamp((e - 0.4)/0.25));
+  const kL = ease(clamp(e/0.18)), kB = ease(clamp((e - 0.14)/0.2)), kG = ease(clamp((e - 0.26)/0.22)), kT = ease(clamp((e - 0.4)/0.25));
   const rl = S.reload > 0;
   if (rl) AIMD.rl = true; else if (AIMD.rl){ AIMD.rl = false; countDec.scramble(); }
-  const low = S.ammo <= 10 && !rl, pulse = low ? 0.55 + 0.45*Math.sin(T*9) : 1, shot = clamp(1 - (T - AIMD.pulse)/0.2);
-  const bw = 168, bh = 96;
-  const [ax, ay] = portraitUI ? P(R_A + 6, A0) : P(R_A + 6, A1);
-  const bx = portraitUI ? ax - 30 : ax + 30, by = portraitUI ? ay - bh - 34 : ay - bh/2 - 6;
+  const low = S.ammo <= 10 && !rl, pulse = low ? 0.55 + 0.45*Math.sin(T*9) : 1, shot = clamp(1 - (T - AIMD.pulse)/0.18);
+  const bw = 176, bh = 104, bx = portraitUI ? C + 10 : C + 188, by = portraitUI ? C - 268 : C - 92;
+  const cs = [[bx, by], [bx + bw, by], [bx, by + bh], [bx + bw, by + bh]];
   g.globalAlpha = vis;
-  // lasers: to both ends of the arc and the four corners of the read-out; they stay on faintly once deployed
-  const lasAl = 0.75*(1 - kT) + 0.18*kT;
-  [P(R_A, A0), P(R_A, A1), [bx, by], [bx + bw, by], [bx, by + bh], [bx + bw, by + bh]].forEach(([x, y], i) => laser(x, y, ease(clamp((e - i*0.02)/0.18)), lasAl));
+  // lasers to the four corners; they stay on faintly once the pane is up, as on the map
+  const lasAl = 0.75*(1 - kT) + 0.16*kT;
+  cs.forEach(([x, y], i) => laser(x, y, ease(clamp((e - i*0.025)/0.18)), lasAl));
   { const [ex, ey] = P(EMIT_R, EMIT_A); g.fillStyle = W(0.9); g.beginPath(); g.arc(ex, ey, 3, 0, Math.PI*2); g.fill(); }
-  // the arc draws between the two laser points
-  const open = lerp(A0, A1, kArc), frac = rl ? clamp(1 - S.reload/1.4) : S.ammo/S.max, aAm = lerp(A0, A1, frac), lit = Math.max(open, aAm);
-  if (kArc > 0){ arc(R_A, A0, open, 1, H(0.3));
-    if (frac > 0){ arc(R_A, A0, lit, 7, H(0.07*pulse)); arc(R_A, A0, lit, 2, E(0.95*pulse)); }
-    for (let k=0;k<=10;k++){ const a = lerp(A0, A1, k/10); if (a < open - 0.01) break; tick(R_A - 7, a, k % 5 ? 3 : 7, 1, H(k % 5 ? 0.35 : 0.7)); }
-    tick(R_A, A0, 14, 1.5, E(0.9));
-    if (kArc > 0.98){ tick(R_A, A1, 14, 1.5, E(0.9)); if (frac > 0) tick(R_A, aAm, 12 + shot*8, 2, W(0.7 + 0.3*shot)); } }
-  // corner brackets, then the glass panel opens from its middle line, like the map's analysis panel
-  if (kB > 0){ g.globalAlpha = vis*kB; corners(bx, by, bw, bh, 10*kB, W(0.95)); }
-  if (kG > 0){ const hh = bh*kG; g.globalAlpha = vis; g.fillStyle = H(0.07); g.fillRect(bx + 2, by + bh/2 - hh/2, bw - 4, hh);
-    g.fillStyle = H(0.35*(1 - kT)); g.fillRect(bx + 2, by + bh/2 - hh/2, bw - 4, 1); g.fillRect(bx + 2, by + bh/2 + hh/2 - 1, bw - 4, 1); }
+  if (kB > 0){ g.globalAlpha = vis*kB; corners(bx, by, bw, bh, 12*kB, shot > 0 ? W(0.6 + 0.4*shot) : W(0.9)); }
+  // glass pane opening from its centre line, with the map's fine grid inside
+  if (kG > 0){ const hh = bh*kG, y0 = by + bh/2 - hh/2; g.globalAlpha = vis;
+    g.fillStyle = H(0.06); g.fillRect(bx + 2, y0, bw - 4, hh);
+    g.save(); g.beginPath(); g.rect(bx + 2, y0, bw - 4, hh); g.clip(); g.fillStyle = H(0.07);
+    for (let x = bx + 14; x < bx + bw; x += 16) g.fillRect(x, by, 1, bh);
+    for (let y = by + 12; y < by + bh; y += 16) g.fillRect(bx, y, bw, 1); g.restore();
+    g.fillStyle = H(0.5*(1 - kT)); g.fillRect(bx + 2, y0, bw - 4, 1); g.fillRect(bx + 2, y0 + hh - 1, bw - 4, 1); }
   if (kT <= 0){ g.globalAlpha = 1; return; }
   g.globalAlpha = vis*kT;
-  { const [x, y] = P(R_A + 12, A0 + 2); label('AMMO', x, y, kT, 11); }
-  g.strokeStyle = E(0.5); g.lineWidth = 1; g.beginPath(); g.moveTo(ax, ay);
-  if (portraitUI){ g.lineTo(ax, by + bh + 14); g.lineTo(bx + 18, by + bh + 14); } else { g.lineTo(bx - 12, ay); g.lineTo(bx - 12, by + bh*0.62); g.lineTo(bx - 4, by + bh*0.62); }
-  g.stroke();
-  // header · figure · data row
-  label('RND', bx + 10, by + 15, kT); g.fillStyle = H(0.35); g.fillRect(bx + 10, by + 26, bw - 20, 1);
+  // header: label, round type at the right, a rule
+  label('RND', bx + 12, by + 16, kT);
   roll.target = (() => { let t = S.type + TYPES.length*Math.floor(roll.target/TYPES.length); while (t < roll.target - 1e-6) t += TYPES.length; return t; })();
-  drawRoller(bx + bw - 44, by + 15, 13, vis*kT);
+  drawRoller(bx + bw - 46, by + 16, 13, vis*kT);
+  g.globalAlpha = vis*kT; g.fillStyle = E(0.35); g.fillRect(bx + 12, by + 27, bw - 24, 1);
+  // the figure
   countDec.set(rl ? '--' : String(S.ammo).padStart(2, '0'));
-  g.globalAlpha = vis*kT; drawDecode(countDec, bx + 8 - S.recoil*2, by + 58, 50, vis*kT*(low ? pulse : 1));
-  g.globalAlpha = vis*kT; text('/' + S.max, bx + 72, by + 66, 16, H(0.6));
-  magDec.set(String(S.mags)); label('MAG', bx + 112, by + 52, kT, 11); drawDecode(magDec, bx + 146, by + 52, 16, vis*kT);
-  g.fillStyle = H(0.25); g.fillRect(bx + 10, by + bh - 12, bw - 20, 1);
-  // contextual rows stack under the block only while they matter (decode in, then fade)
+  drawDecode(countDec, bx + 10 - S.recoil*2, by + 62, 52, vis*kT*(low ? pulse : 1));
+  g.globalAlpha = vis*kT; text('/' + S.max, bx + 76, by + 70, 16, H(0.6));
+  magDec.set(String(S.mags)); label('MAG', bx + 116, by + 56, kT, 11); drawDecode(magDec, bx + 152, by + 56, 16, vis*kT);
+  // a single read line along the bottom, the length of what is left (the map's read-line, nothing more)
+  const frac = rl ? clamp(1 - S.reload/1.4) : S.ammo/S.max;
+  g.fillStyle = H(0.2); g.fillRect(bx + 12, by + bh - 14, bw - 24, 1); g.fillStyle = E(0.9*pulse); g.fillRect(bx + 12, by + bh - 14.5, (bw - 24)*frac, 2);
+  // contextual rows stack under the pane only while they matter (decode in, then fade)
   const rows = [];
   if (PEEK.drone > 0 || S.batt <= 20) rows.push([droneDec, 'P-07', 'BATT ' + Math.round(S.batt) + '  RD ' + S.dAmmo, Math.max(clamp(PEEK.drone/0.4), S.batt <= 20 ? 1 : 0)]); else droneDec.cur = droneDec.prev = '';
   const cool = GEAR.map((G, i) => G.left > 0 ? ['GRP', 'TAG', 'SHD'][i] + ' ' + Math.ceil(G.left) + 's' : '').filter(Boolean).join('  ');
   if (cool) rows.push([gearDec, 'GEAR', cool, 1]); else gearDec.cur = gearDec.prev = '';
   if (PEEK.mark > 0) rows.push([markDec, 'MARK', S.mark + '/3', clamp(PEEK.mark/0.4)]); else markDec.cur = markDec.prev = '';
-  rows.forEach(([dec, l, v, a], i) => { const ry = by + bh + 8 + i*20; dec.set(v); g.globalAlpha = vis*kT*a;
-    label(l, bx + 10, ry, kT*a, 11); drawDecode(dec, bx + 56, ry, 14, vis*kT*a); });
+  rows.forEach(([dec, l, v, a], i) => { const ry = by + bh + 14 + i*20; dec.set(v); g.globalAlpha = vis*kT*a;
+    label(l, bx + 12, ry, kT*a, 11); drawDecode(dec, bx + 58, ry, 14, vis*kT*a); });
   g.globalAlpha = 1; }
 
 // ---- bracelet actions: tracks freezing into a window on a short arc over the outer side of the wrist ----
