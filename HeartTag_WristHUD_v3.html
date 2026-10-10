@@ -1,0 +1,477 @@
+<title>Wrist Arc HUD</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600&family=Share+Tech+Mono&display=swap">
+<style>
+/* v3: wrist HUD as concentric arcs orbiting the round bracelet (map-hologram cyan), door / hack / scan run as separate world holograms */
+:root{
+  --bg:#05080b; --panel:#0b1015; --line:#18222b; --fg:#c9d3dd; --muted:#7d8a97; --head:#eef6f4;
+  --holo:#78ECD6; --holo-hi:#E6FFF9;
+  --f-display:'Chakra Petch',system-ui,sans-serif; --f-mono:'Share Tech Mono',ui-monospace,monospace;
+  color-scheme:dark;
+}
+html,body{height:100%}
+body{background:var(--bg);color:var(--fg);font-family:var(--f-display);margin:0}
+.wrap{display:flex;flex-wrap:wrap;min-height:100%;box-sizing:border-box}
+.stage{flex:999 1 560px;min-width:0;position:relative;min-height:62vh}
+#c{position:absolute;inset:0;width:100%;height:100%;display:block;cursor:crosshair;touch-action:none}
+.tag{position:absolute;left:16px;top:14px;font:400 11px var(--f-mono);letter-spacing:.14em;color:var(--muted);pointer-events:none}
+.xh{position:absolute;left:50%;top:50%;width:18px;height:18px;margin:-9px 0 0 -9px;pointer-events:none;transition:transform .15s,opacity .15s}
+.xh::before,.xh::after{content:"";position:absolute;background:rgba(184,255,240,.8)}
+.xh::before{left:8px;top:0;width:2px;height:18px;clip-path:polygon(0 0,100% 0,100% 30%,0 30%,0 70%,100% 70%,100% 100%,0 100%)}
+.xh::after{top:8px;left:0;height:2px;width:18px;clip-path:polygon(0 0,30% 0,30% 100%,0 100%,0 0,70% 0,100% 0,100% 100%,70% 100%)}
+.xh.ads{transform:scale(.55);opacity:.7}
+.rail{flex:1 1 300px;box-sizing:border-box;padding:24px 16px 28px;display:flex;flex-direction:column;gap:18px;border-left:1px solid var(--line);background:var(--panel)}
+h1{margin:0;font-size:24px;font-weight:600;color:var(--head);text-wrap:balance}
+p{margin:0;font-size:13px;line-height:1.6;color:#9aa6b2;max-width:46ch}
+.lab{font:400 11px var(--f-mono);letter-spacing:.14em;color:var(--muted);text-transform:uppercase}
+.row{display:flex;flex-wrap:wrap;gap:8px}
+button{appearance:none;border:1px solid #24313a;background:#0e151b;color:var(--fg);font:500 13px var(--f-display);padding:0 14px;height:44px;min-width:44px;cursor:pointer}
+button:hover{border-color:var(--holo);color:#fff}
+button:focus-visible{outline:2px solid var(--holo);outline-offset:2px}
+button[aria-pressed="true"]{border-color:var(--holo);color:var(--holo)}
+kbd{font:400 11px var(--f-mono);color:var(--muted);margin-left:6px}
+.seq{display:grid;grid-template-columns:auto 1fr;gap:6px 12px;font-size:12.5px}
+.seq span:nth-child(odd){font-family:var(--f-mono);color:var(--holo);white-space:nowrap}
+#err{color:#ff8a80;font-size:12px}
+@media (min-width: 900px){ .wrap{height:100vh;flex-wrap:nowrap} .stage{min-height:0} .rail{overflow-y:auto;max-width:380px} }
+</style>
+<div class="wrap">
+  <div class="stage">
+    <canvas id="c" aria-label="1인칭 팔찌 HUD 미리보기"></canvas>
+    <div class="xh" id="xh"></div>
+    <div class="tag" id="state">HIP</div>
+  </div>
+  <aside class="rail">
+    <h1>팔찌 아크 HUD</h1>
+    <p>둥근 팔찌를 축으로 호가 손목 오른쪽 반원을 따라 돌아가며 펼쳐져요. 조준할 때만 뜨고, 색은 도시 지도 홀로그램의 하늘색 하나로 맞췄습니다. 문 열기·해킹·스캔은 HUD와 분리돼 대상 쪽에 따로 떠요.</p>
+    <p style="font-size:12px">화면 우클릭 유지 = 조준, 조준 중 좌클릭 = 사격, 마우스 이동 = 시선.</p>
+
+    <div class="lab">전투</div>
+    <div class="row">
+      <button id="bAim" aria-pressed="false">조준<kbd>RMB</kbd></button>
+      <button id="bFire">사격<kbd>LMB</kbd></button>
+      <button id="bReload">재장전<kbd>R</kbd></button>
+      <button id="bType">탄종<kbd>T</kbd></button>
+    </div>
+    <div class="row">
+      <button id="bMark">드론 마킹<kbd>F</kbd></button>
+      <button id="bDrone">드론 사격<kbd>G</kbd></button>
+      <button data-g="0">그래플<kbd>1</kbd></button>
+      <button data-g="1">태깅<kbd>2</kbd></button>
+      <button data-g="2">실드<kbd>3</kbd></button>
+    </div>
+
+    <div class="lab">손 동작 · 별도 홀로그램</div>
+    <div class="row">
+      <button id="bDoor">문 열기<kbd>E</kbd></button>
+      <button id="bHack">해킹<kbd>H</kbd></button>
+      <button id="bScan">스캔<kbd>Q</kbd></button>
+    </div>
+
+    <div class="lab">호 읽는 법 (안쪽 → 바깥)</div>
+    <div class="seq">
+      <span>RING 1</span><span>잔탄 눈금 30칸, 10발 이하에서 깜빡임</span>
+      <span>RING 2</span><span>드론 P-07 배터리 호 · 드론 탄 ◆◆</span>
+      <span>RING 3</span><span>기어 3구간(그래플·태깅·실드) 쿨타임 · 마킹 눈금 3</span>
+      <span>BEZEL</span><span>회전 눈금 링, 조준하면 빠르게 돌다 멈춤</span>
+      <span>24 ×3 AP</span><span>잔탄 · 예비 탄창 · 탄종</span>
+    </div>
+    <div class="lab">별도 동작</div>
+    <div class="seq">
+      <span>DOOR</span><span>팔찌 빔 → 잠금 링 4조각이 돌며 벌어지고 문이 열림</span>
+      <span>HACK</span><span>단말 위 3중 링이 틈을 하나씩 맞춰 동기화</span>
+      <span>SCAN</span><span>스캔 콘이 물체를 훑고 옆에 성분 콜아웃</span>
+    </div>
+    <div id="err" role="status"></div>
+  </aside>
+</div>
+
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}</script>
+<script type="module">
+import * as THREE from 'three';
+import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
+import {EffectComposer} from 'three/addons/postprocessing/EffectComposer.js';
+import {RenderPass} from 'three/addons/postprocessing/RenderPass.js';
+import {UnrealBloomPass} from 'three/addons/postprocessing/UnrealBloomPass.js';
+import {OutputPass} from 'three/addons/postprocessing/OutputPass.js';
+
+try {
+// ---------------- palette (city-map hologram) ----------------
+const HOLO = 0x78ECD6, EDGE = 0xB8FFF0, HI = 0xE6FFF9;
+const CSS = a => `rgba(120,236,214,${a})`, CSSE = a => `rgba(184,255,240,${a})`, CSSH = a => `rgba(230,255,249,${a})`;
+const MONO = '"Share Tech Mono", ui-monospace, monospace';
+const D2R = Math.PI/180, clamp = (v, a=0, b=1) => Math.min(b, Math.max(a, v)), lerp = (a, b, k) => a + (b - a)*k;
+const ease = k => k<.5 ? 4*k*k*k : 1 - Math.pow(-2*k + 2, 3)/2;
+const RM = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+// ---------------- renderer / scene ----------------
+const cv = document.getElementById('c'), stage = cv.parentElement;
+const renderer = new THREE.WebGLRenderer({canvas: cv, antialias: true});
+renderer.setPixelRatio(Math.min(2, devicePixelRatio));
+renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.05;
+const scene = new THREE.Scene(); scene.background = new THREE.Color(0x05080b); scene.fog = new THREE.FogExp2(0x05080b, 0.055);
+scene.environment = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(), 0.04).texture;
+scene.environmentIntensity = 0.35;
+const camera = new THREE.PerspectiveCamera(55, 1, 0.01, 200); camera.position.set(0, 1.6, 0); scene.add(camera);
+scene.add(new THREE.HemisphereLight(0x8fb6c8, 0x0b0f12, 0.35));
+const key = new THREE.DirectionalLight(0xdfe9f2, 1.1); key.position.set(-3, 6, 3); scene.add(key);
+const fill = new THREE.PointLight(HOLO, 6, 9, 2); fill.position.set(2.2, 2.4, -5.5); scene.add(fill);
+const warm = new THREE.PointLight(0xffb070, 3, 10, 2); warm.position.set(-3, 2.8, -8); scene.add(warm);
+const camLight = new THREE.PointLight(0xcfe3ee, 0.12, 1.5, 2); camLight.position.set(-0.2, 0.25, 0.1); camera.add(camLight);
+
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.7, 0.4, 0.82); composer.addPass(bloom);
+composer.addPass(new OutputPass());
+
+// ---------------- environment: dark service hall ----------------
+const M = (c, r=.8, m=.1, extra={}) => new THREE.MeshStandardMaterial({color: c, roughness: r, metalness: m, ...extra});
+const box = (w, h, d, mat, x, y, z, ry=0) => { const o = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat); o.position.set(x, y, z); o.rotation.y = ry; scene.add(o); return o; };
+const floorTex = (() => { const c = document.createElement('canvas'); c.width = c.height = 512; const g = c.getContext('2d');
+  g.fillStyle = '#0b1014'; g.fillRect(0,0,512,512); g.strokeStyle = 'rgba(120,236,214,0.10)'; g.lineWidth = 2;
+  for (let i=0;i<=512;i+=128){ g.beginPath(); g.moveTo(i,0); g.lineTo(i,512); g.moveTo(0,i); g.lineTo(512,i); g.stroke(); }
+  g.strokeStyle = 'rgba(255,255,255,0.03)'; g.lineWidth = 1; for (let i=0;i<512;i+=32){ g.beginPath(); g.moveTo(i,0); g.lineTo(i,512); g.moveTo(0,i); g.lineTo(512,i); g.stroke(); }
+  const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(12, 12); t.anisotropy = 8; t.colorSpace = THREE.SRGBColorSpace; return t; })();
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(48, 48), M(0xffffff, .55, .3, {map: floorTex})); floor.rotation.x = -Math.PI/2; scene.add(floor);
+const wallM = M(0x10161c, .9, .05), trimM = M(0x1a232c, .6, .4);
+box(0.3, 6, 40, wallM, -4.2, 3, -10); box(0.3, 6, 40, wallM, 4.6, 3, -10); box(10, 6, 0.3, wallM, 0, 3, -18);
+for (let z=-2; z>-18; z-=4){ box(0.5, 6, 0.5, trimM, -3.9, 3, z); box(0.5, 6, 0.5, trimM, 4.3, 3, z);
+  const s = box(0.04, 3.2, 0.06, new THREE.MeshBasicMaterial({color: HOLO}), -3.62, 3.1, z); s.material.color.multiplyScalar(0.5); }
+box(1.2, 0.9, 1.2, M(0x161d24, .7, .2), -2.6, 0.45, -10); box(0.9, 1.4, 0.9, M(0x141a20, .7, .2), 3.2, 0.7, -11.5);
+box(2.6, 0.5, 0.8, M(0x182028, .7, .3), 0.8, 0.25, -14);
+
+// target dummy
+const dummy = new THREE.Group(); dummy.position.set(-0.25, 0, -12); scene.add(dummy);
+const dumM = M(0x2a333c, .6, .3);
+const dBody = new THREE.Mesh(new THREE.CapsuleGeometry(0.24, 0.8, 6, 16), dumM); dBody.position.y = 1.0; dummy.add(dBody);
+const dHead = new THREE.Mesh(new THREE.SphereGeometry(0.16, 20, 14), dumM); dHead.position.y = 1.72; dummy.add(dHead);
+const AIM_PT = new THREE.Vector3(-0.25, 1.45, -12);
+
+// door (left, angled toward the player)
+const door = new THREE.Group(); door.position.set(-3.0, 0, -6.2); door.rotation.y = 0.9; scene.add(door);
+const frameM = M(0x2a333d, .45, .6);
+[[-0.75,1.3,0.12,2.6],[0.75,1.3,0.12,2.6]].forEach(([x,y,w,h]) => { const o = new THREE.Mesh(new THREE.BoxGeometry(w, h, 0.25), frameM); o.position.set(x, y, 0); door.add(o); });
+const top = new THREE.Mesh(new THREE.BoxGeometry(1.62, 0.14, 0.25), frameM); top.position.y = 2.65; door.add(top);
+const leafM = M(0x6f7880, .42, .6);
+const leafL = new THREE.Mesh(new THREE.BoxGeometry(0.69, 2.5, 0.08), leafM), leafR = leafL.clone();
+leafL.position.set(-0.35, 1.25, 0); leafR.position.set(0.35, 1.25, 0); door.add(leafL, leafR);
+const doorSeam = new THREE.Mesh(new THREE.BoxGeometry(0.01, 2.3, 0.09), new THREE.MeshBasicMaterial({color: HOLO})); doorSeam.position.set(0, 1.25, 0); door.add(doorSeam);
+const lockAnchor = new THREE.Object3D(); lockAnchor.position.set(0, 1.35, 0.25); door.add(lockAnchor);
+
+// terminal (right)
+const term = new THREE.Group(); term.position.set(2.7, 0, -6.6); term.rotation.y = -0.75; scene.add(term);
+const tBody = new THREE.Mesh(new THREE.BoxGeometry(0.7, 1.25, 0.45), M(0x1b232b, .5, .5)); tBody.position.y = 0.62; term.add(tBody);
+const tScreenM = new THREE.MeshBasicMaterial({color: 0x2a6c62}); const tScreen = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 0.32), tScreenM);
+tScreen.position.set(0, 1.0, 0.231); term.add(tScreen);
+const hackAnchor = new THREE.Object3D(); hackAnchor.position.set(0, 1.75, 0.3); term.add(hackAnchor);
+
+// scan object: phase-crystal shard on a plinth
+const relic = new THREE.Group(); relic.position.set(0.95, 0, -4.4); scene.add(relic);
+const plinth = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.34, 0.75, 24), M(0x1d252d, .5, .5)); plinth.position.y = 0.375; relic.add(plinth);
+const crystalGeo = new THREE.OctahedronGeometry(0.17, 0); crystalGeo.scale(0.8, 1.8, 0.8);
+const crystal = new THREE.Mesh(crystalGeo, new THREE.MeshPhysicalMaterial({color: 0x6d7f8b, roughness: .28, metalness: .25, clearcoat: .6, emissive: 0x0b2a26}));
+crystal.position.y = 1.08; relic.add(crystal);
+const crystalWire = new THREE.LineSegments(new THREE.EdgesGeometry(crystalGeo), new THREE.LineBasicMaterial({color: EDGE, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false}));
+crystal.add(crystalWire);
+
+// ---------------- first-person rig: wrist at origin, forearm runs back along +Z ----------------
+const rig = new THREE.Group(); rig.scale.setScalar(0.62); camera.add(rig);
+const sleeveM = M(0x1a1f25, .92, .02), gloveM = M(0x22282e, .75, .05), gunM = M(0x15191e, .42, .7), gunM2 = M(0x0f1215, .55, .6);
+const forearm = new THREE.Mesh(new THREE.CylinderGeometry(0.043, 0.054, 0.52, 28), sleeveM); forearm.rotation.x = Math.PI/2; forearm.position.z = 0.3; rig.add(forearm);
+const plate = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.012, 0.2), M(0x2b333b, .5, .5)); plate.position.set(0, 0.05, 0.24); plate.rotation.x = -0.02; rig.add(plate);
+const glove = new THREE.Mesh(new THREE.SphereGeometry(1, 24, 16), gloveM); glove.scale.set(0.044, 0.038, 0.058); glove.position.set(0, -0.004, -0.04); rig.add(glove);
+const gun = new THREE.Group(); gun.position.z = -0.05; rig.add(gun);
+const gbox = (w, h, d, mat, x, y, z, rx=0) => { const o = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat); o.position.set(x, y, z); o.rotation.x = rx; gun.add(o); return o; };
+gbox(0.036, 0.056, 0.31, gunM, 0, 0.048, -0.15);
+gbox(0.03, 0.085, 0.04, gunM2, 0, -0.004, -0.02, 0.28);
+gbox(0.026, 0.075, 0.034, gunM2, 0, -0.006, -0.12, 0.08);
+gbox(0.018, 0.008, 0.2, gunM2, 0, 0.08, -0.15);
+gbox(0.012, 0.016, 0.01, gunM2, 0, 0.09, -0.05); gbox(0.008, 0.018, 0.008, gunM2, 0, 0.09, -0.24);
+const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.009, 0.009, 0.14, 14), gunM); barrel.rotation.x = Math.PI/2; barrel.position.set(0, 0.056, -0.36); gun.add(barrel);
+const gunStrip = gbox(0.002, 0.005, 0.17, new THREE.MeshBasicMaterial({color: HOLO, toneMapped: false}), 0.0185, 0.05, -0.17);
+const muzzle = new THREE.Object3D(); muzzle.position.set(0, 0.056, -0.44); gun.add(muzzle);
+const flashT = (() => { const c = document.createElement('canvas'); c.width = c.height = 128; const g = c.getContext('2d'); const r = g.createRadialGradient(64,64,0,64,64,64);
+  r.addColorStop(0,'rgba(255,250,235,1)'); r.addColorStop(.25,'rgba(255,200,130,.8)'); r.addColorStop(1,'rgba(255,140,60,0)'); g.fillStyle = r; g.fillRect(0,0,128,128); return new THREE.CanvasTexture(c); })();
+const flash = new THREE.Sprite(new THREE.SpriteMaterial({map: flashT, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false})); flash.scale.setScalar(0.09); muzzle.add(flash);
+
+// bracelet: white armour strips around a dark core, red LED lines in the seams (parallel to the arm), brass latches
+const cuff = new THREE.Group(); cuff.position.z = 0.065; rig.add(cuff);
+const CR = 0.05, CL = 0.066, NS = 14;
+const core = new THREE.Mesh(new THREE.CylinderGeometry(CR-0.004, CR-0.004, CL, 40, 1, true), M(0x0c0e11, .6, .3, {side: THREE.DoubleSide})); core.rotation.x = Math.PI/2; cuff.add(core);
+const armorM = new THREE.MeshPhysicalMaterial({color: 0xc9ced3, roughness: .42, metalness: .05, clearcoat: .35, clearcoatRoughness: .4});
+const armorM2 = new THREE.MeshPhysicalMaterial({color: 0xaeb4ba, roughness: .48, metalness: .05, clearcoat: .5});
+const ledM = new THREE.MeshStandardMaterial({color: 0x330608, emissive: 0xff2030, emissiveIntensity: 1.5});
+const brassM = M(0xc08a42, .35, .85);
+const sw = 2*Math.PI*CR/NS;
+for (let i=0;i<NS;i++){ const th = i/NS*Math.PI*2;
+  const pv = new THREE.Group(); pv.rotation.z = th; cuff.add(pv);
+  if (i % 3 === 1){ [-1, 1].forEach(s => { const p = new THREE.Mesh(new THREE.BoxGeometry(sw*0.8, 0.008, CL*0.46), s>0 ? armorM : armorM2); p.position.set(0, CR+0.002, s*CL*0.26); pv.add(p); }); }
+  else { const p = new THREE.Mesh(new THREE.BoxGeometry(sw*0.8, 0.008 + (i%2)*0.002, CL*0.96), armorM); p.position.y = CR + 0.002; pv.add(p); }
+  const lv = new THREE.Group(); lv.rotation.z = Math.PI/NS; pv.add(lv);
+  const led = new THREE.Mesh(new THREE.BoxGeometry(0.0016, 0.004, CL*0.86), ledM); led.position.y = CR; lv.add(led);
+  if (i % 4 === 0){ const b = new THREE.Mesh(new THREE.BoxGeometry(0.004, 0.006, 0.006), brassM); b.position.set(0, CR+0.003, CL*0.42); lv.add(b); }
+  if (i % 5 === 2){ const sq = new THREE.Mesh(new THREE.BoxGeometry(0.004, 0.0015, 0.007), ledM); sq.position.set(0, CR+0.0065, -CL*0.1); pv.add(sq); } }
+[-1, 1].forEach(s => { const r = new THREE.Mesh(new THREE.TorusGeometry(CR+0.001, 0.0022, 8, 64), M(0x15181c, .5, .6)); r.position.z = s*CL/2; cuff.add(r); });
+
+// ---------------- HUD: concentric arcs around the cuff axis, right half ----------------
+const hud = new THREE.Group(); hud.position.z = 0.055; hud.scale.setScalar(1.18); rig.add(hud);
+const hudMat = (c=HOLO, o=1) => new THREE.MeshBasicMaterial({color: c, transparent: true, opacity: o, depthTest: false, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, toneMapped: false});
+class Arc { constructor(r, w, c, o){ this.r = r; this.w = w; this.m = new THREE.Mesh(new THREE.BufferGeometry(), hudMat(c, o)); this.m.renderOrder = 10; hud.add(this.m); this.k = ''; }
+  set(a0, a1){ const lo = Math.min(a0, a1), hi = Math.max(a0, a1); if (hi - lo < 0.2){ this.m.visible = false; return; } this.m.visible = true;
+    const k = lo.toFixed(1)+'|'+hi.toFixed(1); if (k === this.k) return; this.k = k; this.m.geometry.dispose();
+    this.m.geometry = new THREE.RingGeometry(this.r - this.w/2, this.r + this.w/2, Math.max(2, Math.ceil((hi-lo)/2.5)), 1, lo*D2R, (hi-lo)*D2R); } }
+const tickGeo = (len, w) => { const g = new THREE.PlaneGeometry(len, w); return g; };
+const polar = (r, a) => [Math.cos(a*D2R)*r, Math.sin(a*D2R)*r];
+function tick(r, a, len, w, c, o){ const m = new THREE.Mesh(tickGeo(len, w), hudMat(c, o)); const [x, y] = polar(r, a); m.position.set(x, y, 0); m.rotation.z = a*D2R; m.renderOrder = 11; hud.add(m); return m; }
+
+const A_TOP = 100, A_BOT = -36;                      // the arc window: upper-right half around the wrist, clear of the forearm
+const R1 = 0.074, R2 = 0.09, R3 = 0.106, RB = 0.124;
+// ring 1: ammo ticks
+const AMMO_T = []; for (let i=0;i<30;i++){ const a = lerp(A_TOP-2, A_BOT+16, i/29); AMMO_T.push({m: tick(R1, a, 0.011, 0.0022, HOLO, 1), a}); }
+const r1Guide = new Arc(R1 + 0.0085, 0.0007, HOLO, 0.35);
+// ring 2: drone battery + drone ammo diamonds
+const r2Track = new Arc(R2, 0.0026, HOLO, 0.16), r2Fill = new Arc(R2, 0.0026, HOLO, 1);
+const DIA = [0, 1].map(i => { const g = new THREE.Mesh(new THREE.PlaneGeometry(0.0062, 0.0062), hudMat(HOLO, 1)); g.rotation.z = Math.PI/4; g.renderOrder = 11; hud.add(g); return g; });
+const DIA_O = [0, 1].map(() => { const g = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,.0046,0), new THREE.Vector3(.0046,0,0), new THREE.Vector3(0,-.0046,0), new THREE.Vector3(-.0046,0,0)]), new THREE.LineBasicMaterial({color: HOLO, transparent: true, depthTest: false, depthWrite: false, toneMapped: false})); g.renderOrder = 11; hud.add(g); return g; });
+// ring 3: gear segments + marks
+const GEAR_SEG = [[A_TOP, 76], [72, 48], [44, 20]];
+const gTrack = GEAR_SEG.map(() => new Arc(R3, 0.0042, HOLO, 0.16)), gFill = GEAR_SEG.map(() => new Arc(R3, 0.0042, HOLO, 1));
+const MARK_A = [12, 5, -2]; const MARKS = MARK_A.map(a => tick(R3, a, 0.009, 0.0034, HOLO, 1));
+// bezel: rotating fine ticks inside the window, plus a sweeping bright notch
+const BZ = []; for (let i=0;i<72;i++) BZ.push(tick(RB, 0, i%6===0 ? 0.008 : 0.0042, i%6===0 ? 0.0012 : 0.0008, EDGE, 0.6));
+const bzEdge = new Arc(RB + 0.0062, 0.0006, HOLO, 0.3);
+const sweep = new THREE.Mesh(new THREE.CircleGeometry(0.0022, 12), hudMat(HI, 1)); sweep.renderOrder = 12; hud.add(sweep);
+// end caps for the window
+const capT = tick(RB + 0.004, A_TOP + 4, 0.06, 0.0009, HOLO, .5), capB = tick(RB + 0.004, A_BOT - 4, 0.06, 0.0009, HOLO, .5);
+
+// labels (canvas sprites, camera facing)
+function label(w, h, height, cx=0){ const c = document.createElement('canvas'); c.width = w; c.height = h; const g = c.getContext('2d');
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; t.minFilter = THREE.LinearFilter;
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({map: t, transparent: true, depthTest: false, depthWrite: false, toneMapped: false})); s.center.set(cx, 0.5);
+  s.scale.set(height*w/h, height, 1); s.renderOrder = 20; return {s, draw(fn){ g.clearRect(0, 0, w, h); fn(g, w, h); t.needsUpdate = true; }}; }
+const L_AMMO = label(512, 160, 0.034); L_AMMO.s.position.set(0.138, 0.006, 0); hud.add(L_AMMO.s);
+const L_SUB = label(512, 64, 0.0105); L_SUB.s.position.set(0.139, -0.019, 0); hud.add(L_SUB.s);
+const L_P07 = label(256, 64, 0.0085); { const [x, y] = polar(R2 + 0.008, A_TOP + 4); L_P07.s.position.set(x + 0.004, y + 0.006, 0); hud.add(L_P07.s); }
+const L_GEAR = ['GRP', 'TAG', 'SHD'].map((n, i) => { const l = label(256, 64, 0.0078); const a = (GEAR_SEG[i][0] + GEAR_SEG[i][1])/2; const [x, y] = polar(R3 + 0.014, a); l.s.position.set(x + 0.008, y, 0); hud.add(l.s); l.n = n; return l; });
+const L_BATT = label(256, 64, 0.0085); { const [x, y] = polar(R2 + 0.008, A_TOP + 4); L_BATT.s.position.set(x + 0.032, y + 0.006, 0); hud.add(L_BATT.s); }
+const SPRITES = [L_AMMO, L_SUB, L_P07, L_BATT, ...L_GEAR];
+
+// ---------------- state ----------------
+const S = {aim: false, ammo: 24, max: 30, mags: 3, type: 0, reload: 0, dAmmo: 2, dMax: 2, batt: 76, mark: 2, recoil: 0, flash: 0, glitch: 0};
+const TYPES = ['STD', 'AP', 'EMP'];
+const GEAR = [{cd: 8, left: 0}, {cd: 5, left: 0}, {cd: 14, left: 0}];
+let hudK = 0, aimK = 0, bezelRot = 0, bezelSpin = 0;
+
+function drawAmmo(t){ const low = S.ammo <= 10 && S.reload <= 0, blink = low && Math.floor(t*4)%2 === 0;
+  L_AMMO.draw((g, w, h) => { g.font = `400 140px ${MONO}`; g.textBaseline = 'middle';
+    const txt = S.reload > 0 ? '--' : String(S.ammo).padStart(2, '0');
+    const ox = S.glitch > 0 ? (Math.random()-.5)*14 : 0;
+    if (S.glitch > 0){ g.fillStyle = CSS(.35); g.fillText(txt, 6 + ox*2, h/2 + 2); }
+    g.shadowColor = CSS(.9); g.shadowBlur = 18; g.fillStyle = blink ? CSSH(.55) : CSSH(1); g.fillText(txt, 4 + ox, h/2 + 4); }); }
+function drawSub(){ L_SUB.draw((g, w, h) => { g.font = `400 46px ${MONO}`; g.textBaseline = 'middle'; g.fillStyle = CSS(.95);
+  g.fillText('×' + S.mags, 4, h/2); g.fillStyle = S.type ? CSSH(1) : CSS(.55); g.fillText(TYPES[S.type], 104, h/2);
+  g.fillStyle = CSS(.35); g.fillRect(84, 18, 2, 28); }); }
+function drawStatic(){
+  L_P07.draw((g, w, h) => { g.font = `400 40px ${MONO}`; g.textBaseline = 'middle'; g.fillStyle = CSS(.7); g.fillText('P-07', 2, h/2); });
+  L_BATT.draw((g, w, h) => { g.font = `400 40px ${MONO}`; g.textBaseline = 'middle'; g.fillStyle = S.batt <= 20 ? CSSH(1) : CSS(.8); g.fillText(Math.round(S.batt) + '%', 2, h/2); });
+  drawSub(); }
+function drawGear(){ L_GEAR.forEach((l, i) => l.draw((g, w, h) => { g.font = `400 40px ${MONO}`; g.textBaseline = 'middle'; const G = GEAR[i];
+  g.fillStyle = G.left > 0 ? CSS(.45) : CSS(.9); g.fillText(G.left > 0 ? G.left.toFixed(1) : l.n, 2, h/2); })); }
+
+// ---------------- world holograms: door lock / hack dial / scan callout ----------------
+function holoPlane(size, px=512, py=512){ const c = document.createElement('canvas'); c.width = px; c.height = py; const g = c.getContext('2d');
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(size, size*py/px), new THREE.MeshBasicMaterial({map: t, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false, opacity: 0}));
+  m.renderOrder = 5; m.visible = false; scene.add(m); return {m, g, t, w: px, h: py}; }
+const beamMat = new THREE.LineBasicMaterial({color: EDGE, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false});
+function beam(n=2){ const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(new Array(n*3).fill(0), 3)); const l = new THREE.LineSegments(g, beamMat.clone()); l.frustumCulled = false; l.renderOrder = 6; scene.add(l); return l; }
+
+const DOOR = {t: -1, p: holoPlane(0.85), beam: beam(2)};
+const HACK = {t: -1, p: holoPlane(1.15), beam: beam(2)};
+const SCAN = {t: -1, p: holoPlane(0.9, 512, 300), cone: beam(16), ring: new THREE.Mesh(new THREE.RingGeometry(0.3, 0.312, 64), hudMat(EDGE, 0))};
+SCAN.ring.material.depthTest = true; SCAN.ring.rotation.x = -Math.PI/2; SCAN.ring.renderOrder = 6; relic.add(SCAN.ring);
+
+function ring(g, cx, cy, r, a0, a1, lw, col){ g.strokeStyle = col; g.lineWidth = lw; g.beginPath(); g.arc(cx, cy, r, a0, a1); g.stroke(); }
+function drawDoor(t){ const {g, w, h} = DOOR.p, C = w/2; g.clearRect(0, 0, w, h);
+  const k = ease(clamp((t - 0.35)/0.8)), open = ease(clamp((t - 1.0)/0.5));
+  ring(g, C, C, 210, 0, Math.PI*2, 2, CSS(.25));
+  for (let i=0;i<4;i++){ const a = i*Math.PI/2 + k*Math.PI/2 + 0.12, push = open*34;
+    g.save(); g.translate(C + Math.cos(a + 0.6)*push, C + Math.sin(a + 0.6)*push); ring(g, 0, 0, 160, a, a + Math.PI/2 - 0.24, 16, CSS(.9 - open*.3)); g.restore(); }
+  for (let i=0;i<24;i++){ const a = i/24*Math.PI*2 - k*Math.PI; g.strokeStyle = CSS(.45); g.lineWidth = 3; g.beginPath(); g.moveTo(C + Math.cos(a)*118, C + Math.sin(a)*118); g.lineTo(C + Math.cos(a)*128, C + Math.sin(a)*128); g.stroke(); }
+  ring(g, C, C, 228, -Math.PI/2, -Math.PI/2 + clamp(t/1.5)*Math.PI*2, 5, CSSE(.95));
+  g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = CSSH(1); g.font = `400 54px ${MONO}`; g.shadowColor = CSS(1); g.shadowBlur = 16;
+  g.fillText(open > 0.5 ? 'OPEN' : 'LOCK', C, C); g.shadowBlur = 0;
+  g.font = `400 26px ${MONO}`; g.fillStyle = CSS(.75); g.fillText('DOOR · B-12', C, C + 50); DOOR.p.t.needsUpdate = true; }
+const HEX = '0123456789ABCDEF';
+function drawHack(t){ const {g, w, h} = HACK.p, C = w/2; g.clearRect(0, 0, w, h);
+  const R = [92, 136, 180], LOCK = [0.9, 1.7, 2.5], done = t > 2.7;
+  ring(g, C, C, 226, 0, Math.PI*2, 1.5, CSS(.22));
+  R.forEach((r, i) => { const locked = t > LOCK[i]; const free = (i%2 ? -1 : 1)*(t*(2.4 + i)) + i*1.7;
+    const snap = locked ? 0 : free; const k = locked ? 1 : 0; const gap = 0.5, a0 = -Math.PI/2 + gap/2 + snap, a1 = a0 + Math.PI*2 - gap;
+    const fl = locked ? clamp(1 - (t - LOCK[i])*3) : 0;
+    ring(g, C, C, r, a0, a1, 10 - i*2, locked ? CSSE(.95) : CSS(.55)); if (fl > 0) ring(g, C, C, r, a0, a1, 22, CSSH(fl*.5));
+    for (let j=0;j<12;j++){ const a = a0 + j*(Math.PI*2 - gap)/11; g.fillStyle = CSS(.5*k + .2); g.fillRect(C + Math.cos(a)*(r+14) - 2, C + Math.sin(a)*(r+14) - 2, 4, 4); } });
+  g.save(); g.translate(C, C); g.rotate(t*0.6); g.font = `400 18px ${MONO}`; g.textAlign = 'center'; g.fillStyle = CSS(.45);
+  for (let j=0;j<28;j++){ g.save(); g.rotate(j/28*Math.PI*2); g.fillText(HEX[(Math.random()*16)|0] + HEX[(j*7 + Math.floor(t*12))%16], 0, -212); g.restore(); } g.restore();
+  g.strokeStyle = CSSE(.9); g.lineWidth = 3; g.beginPath(); g.moveTo(C, C - 240); g.lineTo(C, C - 196); g.stroke();
+  g.textAlign = 'center'; g.textBaseline = 'middle'; g.shadowColor = CSS(1); g.shadowBlur = 16; g.fillStyle = CSSH(1);
+  g.font = `400 ${done ? 40 : 52}px ${MONO}`; g.fillText(done ? 'ACCESS' : Math.floor(clamp(t/2.6)*100) + '%', C, C); g.shadowBlur = 0;
+  g.font = `400 22px ${MONO}`; g.fillStyle = CSS(.7); g.fillText('NODE 04 · SYNC ' + [0,1,2].filter(i => t > LOCK[i]).length + '/3', C, C + 44); HACK.p.t.needsUpdate = true; }
+function drawScan(t){ const {g, w, h} = SCAN.p; g.clearRect(0, 0, w, h);
+  const k = clamp((t - 1.6)/0.5), p = clamp(t/2.2), done = t > 2.3;
+  g.strokeStyle = CSSE(.8); g.lineWidth = 2; g.beginPath(); g.moveTo(w, h - 30); g.lineTo(w - 60, h - 120); g.lineTo(w - 60 - 440*k, h - 120); g.stroke();   // leader points right, to the relic
+  g.fillStyle = CSSE(1); g.beginPath(); g.arc(w - 4, h - 34, 6, 0, Math.PI*2); g.fill();
+  if (k > 0){ g.globalAlpha = k; g.font = `400 34px ${MONO}`; g.fillStyle = CSSH(1); g.textBaseline = 'alphabetic';
+    g.fillText('OBJECT 03', 12, 50); g.font = '500 26px "Chakra Petch", sans-serif'; g.fillStyle = CSS(.9); g.fillText('위상 결정 파편', 12, 86);
+    [['Fe-Ni', .62], ['PHASE', .28], ['POLY', .10]].forEach(([n, v], i) => { const y = 112 + i*26; g.font = `400 20px ${MONO}`; g.fillStyle = CSS(.7); g.fillText(n, 12, y + 7);
+      g.fillStyle = CSS(.18); g.fillRect(98, y - 3, 280, 5); g.fillStyle = CSSE(1); g.fillRect(98, y - 3, 280*v*clamp((t - 1.8)/0.6), 5);
+      g.fillStyle = CSS(.8); g.fillText(Math.round(v*100), 392, y + 7); });
+    g.font = `400 20px ${MONO}`; g.fillStyle = done ? CSSH(1) : CSS(.5); g.fillText(done ? 'RECIPE UNLOCKED' : 'ANALYZING ' + Math.floor(p*100) + '%', 12, h - 132); g.globalAlpha = 1; }
+  SCAN.p.t.needsUpdate = true; }
+
+// ---------------- input ----------------
+function setAim(on){ S.aim = on; document.getElementById('bAim').setAttribute('aria-pressed', String(on)); document.getElementById('xh').classList.toggle('ads', on);
+  document.getElementById('state').textContent = on ? 'AIM · WRIST ARC' : 'HIP'; if (on) bezelSpin = 1; }
+function fire(){ if (S.reload > 0 || S.ammo <= 0) return; S.ammo--; S.recoil = 1; S.flash = 1; S.glitch = 0.08; tracer.t = 0.07; }
+function reload(){ if (S.reload > 0 || S.mags <= 0 || S.ammo === S.max) return; S.reload = 1.4; S.mags--; drawSub(); }
+const cycleType = () => { S.type = (S.type + 1) % 3; S.glitch = 0.12; drawSub(); };
+const mark = () => { S.mark = S.mark >= 3 ? 0 : S.mark + 1; };
+const droneFire = () => { if (S.dAmmo > 0){ S.dAmmo--; S.batt = Math.max(0, S.batt - 6); dTracer.t = 0.12; } else S.dAmmo = S.dMax; drawStatic(); };
+const gear = i => { if (GEAR[i].left <= 0) GEAR[i].left = GEAR[i].cd; };
+const doorGo = () => { if (DOOR.t < 0) DOOR.t = 0; }, hackGo = () => { if (HACK.t < 0) HACK.t = 0; }, scanGo = () => { if (SCAN.t < 0) SCAN.t = 0; };
+const $ = id => document.getElementById(id);
+$('bAim').onclick = () => setAim(!S.aim); $('bFire').onclick = fire; $('bReload').onclick = reload; $('bType').onclick = cycleType;
+$('bMark').onclick = mark; $('bDrone').onclick = droneFire; $('bDoor').onclick = doorGo; $('bHack').onclick = hackGo; $('bScan').onclick = scanGo;
+document.querySelectorAll('[data-g]').forEach(b => b.onclick = () => gear(+b.dataset.g));
+cv.addEventListener('contextmenu', e => e.preventDefault());
+cv.addEventListener('pointerdown', e => { if (e.button === 2) setAim(true); else if (e.button === 0 && S.aim) fire(); });
+addEventListener('pointerup', e => { if (e.button === 2) setAim(false); });
+const look = {x: 0, y: 0, tx: 0, ty: 0};
+cv.addEventListener('pointermove', e => { const r = cv.getBoundingClientRect(); look.tx = ((e.clientX - r.left)/r.width - .5)*2; look.ty = ((e.clientY - r.top)/r.height - .5)*2; });
+cv.addEventListener('pointerleave', () => { look.tx = look.ty = 0; });
+addEventListener('keydown', e => { const k = e.key.toLowerCase(); if (e.repeat) return;
+  ({r: reload, t: cycleType, f: mark, g: droneFire, e: doorGo, h: hackGo, q: scanGo, '1': () => gear(0), '2': () => gear(1), '3': () => gear(2)})[k]?.(); });
+
+// tracers
+const tracer = {l: beam(2), t: 0}, dTracer = {l: beam(2), t: 0};
+const markBr = label(256, 256, 0.75); markBr.s.material.depthTest = true; markBr.s.center.set(.5, .5); markBr.s.position.set(0, 1.35, 0); dummy.add(markBr.s);
+function drawMark(n){ markBr.draw((g, w, h) => { if (!n) return; g.strokeStyle = CSSE(.95); g.lineWidth = 6; const s = 52, m = 26;
+  [[m,m,1,1],[w-m,m,-1,1],[m,h-m,1,-1],[w-m,h-m,-1,-1]].forEach(([x,y,sx,sy]) => { g.beginPath(); g.moveTo(x, y + sy*s); g.lineTo(x, y); g.lineTo(x + sx*s, y); g.stroke(); });
+  g.font = `400 30px ${MONO}`; g.fillStyle = CSSH(1); g.textAlign = 'center'; g.fillText('P-07 MK' + n, w/2, h - 6); }); }
+
+// ---------------- poses ----------------
+const HIP = {p: new THREE.Vector3(0.2, -0.17, -0.5), r: new THREE.Euler(0.3, 0.42, 0.08)};
+const ADS = {p: new THREE.Vector3(0.08, -0.112, -0.46), r: new THREE.Euler(0.22, 0.3, 0.02)};
+const HUD_TILT = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, -0.32, 0));
+const _q0 = new THREE.Quaternion(), _q1 = new THREE.Quaternion(), _v = new THREE.Vector3(), _w = new THREE.Vector3();
+
+// ---------------- resize ----------------
+function resize(){ const w = stage.clientWidth, h = stage.clientHeight; renderer.setSize(w, h, false); composer.setSize(w, h); bloom.setSize(w, h); camera.aspect = w/h; camera.updateProjectionMatrix(); }
+new ResizeObserver(resize).observe(stage); resize();
+
+// ---------------- loop ----------------
+let last = performance.now(), lastMark = -1, tAcc = 0;
+function setBeam(l, a, b, op){ const p = l.geometry.attributes.position; p.setXYZ(0, a.x, a.y, a.z); p.setXYZ(1, b.x, b.y, b.z); p.needsUpdate = true; l.material.opacity = op; }
+function frame(now){
+  const dt = Math.min(0.05, (now - last)/1000); last = now; tAcc += dt; const T = tAcc;
+  // timers
+  if (S.reload > 0){ S.reload -= dt; if (S.reload <= 0){ S.ammo = S.max; S.glitch = .1; } }
+  S.recoil = Math.max(0, S.recoil - dt*9); S.flash = Math.max(0, S.flash - dt*18); S.glitch = Math.max(0, S.glitch - dt);
+  GEAR.forEach(G => G.left = Math.max(0, G.left - dt));
+
+  // look + pose
+  look.x = lerp(look.x, look.tx, 1 - Math.exp(-dt*4)); look.y = lerp(look.y, look.ty, 1 - Math.exp(-dt*4));
+  camera.rotation.set(-look.y*0.1, -look.x*0.16, 0, 'YXZ');
+  aimK = lerp(aimK, S.aim ? 1 : 0, 1 - Math.exp(-dt*14));
+  hudK = clamp(hudK + (S.aim ? dt/0.42 : -dt/0.18));
+  camera.fov = lerp(55, 47, aimK); camera.updateProjectionMatrix();
+  const br = RM ? 0 : 1, sway = (1 - aimK*0.75)*br;
+  rig.position.lerpVectors(HIP.p, ADS.p, aimK);
+  rig.position.x += Math.sin(T*1.1)*0.003*sway - (look.tx - look.x)*0.02; rig.position.y += Math.sin(T*2.2)*0.002*sway + (look.ty - look.y)*0.015;
+  const rl = S.reload > 0 ? Math.sin(clamp(1 - S.reload/1.4)*Math.PI) : 0;
+  rig.position.z += S.recoil*0.022; rig.position.y -= rl*0.05;
+  _q0.setFromEuler(HIP.r); _q1.setFromEuler(ADS.r); rig.quaternion.slerpQuaternions(_q0, _q1, aimK);
+  rig.rotateX(S.recoil*0.07 - rl*0.35); rig.rotateZ(rl*0.5);
+  hud.quaternion.copy(rig.quaternion).invert().multiply(HUD_TILT);   // arcs stay facing the eye, centred on the cuff
+  flash.material.opacity = S.flash; flash.material.rotation = Math.random()*6; flash.scale.setScalar(0.06 + S.flash*0.06);
+  crystal.rotation.y += dt*0.4;
+
+  // ---- HUD arcs (sweep in from the top, staggered ring by ring) ----
+  const hv = hudK > 0.001; hud.visible = hv;
+  if (hv){
+    const rev = i => ease(clamp((hudK - i*0.12)/0.55)), sweepTo = (k, a0, a1) => lerp(a0, a1, k);
+    const k1 = rev(0), k2 = rev(1), k3 = rev(2), kb = rev(0.5);
+    const low = S.ammo <= 10 && S.reload <= 0, blink = low ? (Math.floor(T*4)%2 ? .45 : 1) : 1;
+    const refill = S.reload > 0 ? clamp(1 - S.reload/1.4) : 1;
+    AMMO_T.forEach((o, i) => { const vis = o.a >= sweepTo(k1, A_TOP, A_BOT + 14) - 0.01; o.m.visible = vis;
+      const on = S.reload > 0 ? i/30 < refill : i < S.ammo; o.m.material.opacity = (on ? 1 : 0.14) * (on ? blink : 1);
+      o.m.material.color.setHex(on && i === S.ammo - 1 ? HI : HOLO); o.m.scale.x = on && i === S.ammo - 1 ? 1.35 + S.recoil*0.6 : 1; });
+    r1Guide.set(A_TOP, sweepTo(k1, A_TOP, A_BOT + 14));
+    const r2end = sweepTo(k2, A_TOP, A_BOT + 22); r2Track.set(A_TOP, r2end);
+    r2Fill.set(A_TOP, Math.max(r2end, lerp(A_TOP, A_BOT + 22, S.batt/100)));
+    r2Fill.m.material.color.setHex(S.batt <= 20 ? HI : HOLO);
+    DIA.forEach((d, i) => { const a = A_BOT + 12 - i*8, [x, y] = polar(R2, a); d.position.set(x, y, 0); DIA_O[i].position.set(x, y, 0);
+      d.visible = k2 > 0.95 && i < S.dAmmo; DIA_O[i].visible = k2 > 0.95; DIA_O[i].material.opacity = 0.6; });
+    GEAR_SEG.forEach(([a0, a1], i) => { const kk = clamp(k3*3 - i); const e = lerp(a0, a1, kk); gTrack[i].set(a0, e);
+      const G = GEAR[i], fillK = 1 - G.left/G.cd; gFill[i].set(a0, lerp(a0, e, fillK)); gFill[i].m.material.opacity = G.left > 0 ? 0.7 : 1; });
+    MARKS.forEach((m, i) => { m.visible = k3 > 0.98; m.material.opacity = i < S.mark ? 1 : 0.18; });
+    // bezel: spins fast on reveal, then a slow drift
+    bezelSpin = Math.max(0, bezelSpin - dt*1.6); bezelRot += dt*(RM ? 0 : (6 + bezelSpin*bezelSpin*260));
+    const winHi = A_TOP + 4, winLo = lerp(winHi, A_BOT - 4, kb);
+    BZ.forEach((m, i) => { const a = ((i*5 + bezelRot) % 360 + 360) % 360, aa = a > 180 ? a - 360 : a;
+      const vis = aa <= winHi && aa >= winLo; m.visible = vis; if (!vis) return;
+      const [x, y] = polar(RB, aa); m.position.set(x, y, 0); m.rotation.z = aa*D2R;
+      m.material.opacity = 0.65*Math.min(1, (winHi - aa)/8, (aa - winLo)/8); });
+    bzEdge.set(winHi, winLo);
+    const sa = lerp(A_TOP, A_BOT, (Math.sin(T*1.3)*.5 + .5)); const [sx, sy] = polar(RB + 0.0062, sa); sweep.position.set(sx, sy, 0); sweep.visible = kb > 0.99;
+    capT.visible = kb > 0.02; capB.visible = kb > 0.98;
+    const sp = ease(clamp((hudK - 0.35)/0.5));
+    SPRITES.forEach(l => l.s.material.opacity = sp);
+    L_AMMO.s.material.opacity = sp*(S.glitch > 0 ? 0.7 + Math.random()*0.3 : 1);
+    drawAmmo(T); if (Math.floor(T*10) !== Math.floor((T - dt)*10)){ drawGear(); drawStatic(); }
+  }
+  if (S.mark !== lastMark){ drawMark(S.mark); lastMark = S.mark; }
+  markBr.s.material.opacity = S.mark ? 0.9 : 0;
+
+  // bracelet world position (beam source)
+  cuff.getWorldPosition(_v);
+  // tracers
+  muzzle.getWorldPosition(_w); tracer.t = Math.max(0, tracer.t - dt); setBeam(tracer.l, _w, AIM_PT, tracer.t > 0 ? 0.9 : 0); tracer.l.material.color.setHex(0xffe0b0);
+  dTracer.t = Math.max(0, dTracer.t - dt); setBeam(dTracer.l, new THREE.Vector3(-2.5, 4.2, -3), AIM_PT, dTracer.t > 0 ? 1 : 0);
+
+  // ---- DOOR (separate) ----
+  if (DOOR.t >= 0){ DOOR.t += dt; const t = DOOR.t, P = DOOR.p.m;
+    const fadeIn = clamp(t/0.25), fadeOut = 1 - clamp((t - 2.4)/0.4);
+    P.visible = true; P.material.opacity = fadeIn*fadeOut; lockAnchor.getWorldPosition(P.position); P.quaternion.copy(camera.quaternion);
+    drawDoor(t);
+    const bk = clamp(t/0.3)*(1 - clamp((t - 1.2)/0.3)); setBeam(DOOR.beam, _v, P.position, bk*(0.6 + Math.random()*0.4));
+    const open = ease(clamp((t - 1.3)/0.7))*(1 - ease(clamp((t - 5)/0.8)));
+    leafL.position.x = -0.35 - open*0.66; leafR.position.x = 0.35 + open*0.66; doorSeam.material.opacity = 1 - open; doorSeam.visible = open < 0.05;
+    if (t > 6){ DOOR.t = -1; P.visible = false; } }
+  // ---- HACK (separate) ----
+  if (HACK.t >= 0){ HACK.t += dt; const t = HACK.t, P = HACK.p.m;
+    const fade = clamp(t/0.25)*(1 - clamp((t - 3.8)/0.5));
+    P.visible = true; P.material.opacity = fade; hackAnchor.getWorldPosition(P.position); P.quaternion.copy(camera.quaternion);
+    drawHack(t); setBeam(HACK.beam, _v, P.position, clamp(t/0.3)*(1 - clamp((t - 2.6)/0.3))*(0.5 + Math.random()*0.5));
+    tScreenM.color.setHex(t > 2.7 ? 0x3fa596 : (Math.floor(t*12)%2 ? 0x2a6c62 : 0x1c4943));
+    if (t > 4.4){ HACK.t = -1; P.visible = false; tScreenM.color.setHex(0x2a6c62); } }
+  // ---- SCAN (separate) ----
+  if (SCAN.t >= 0){ SCAN.t += dt; const t = SCAN.t, P = SCAN.p.m;
+    const fade = 1 - clamp((t - 4.6)/0.5), sh = 0.78 + clamp(t/1.6)*0.62;
+    SCAN.ring.position.y = sh; SCAN.ring.material.opacity = (t < 1.7 ? 0.95 : 0)*fade; SCAN.ring.scale.setScalar(1 - 0.5*clamp((sh - 0.9)/0.5));
+    crystalWire.material.opacity = clamp(t/1.6)*fade*0.55;
+    const pos = SCAN.cone.geometry.attributes.position; const cx = relic.position.x, cz = relic.position.z, rr = 0.3*SCAN.ring.scale.x;
+    for (let i=0;i<8;i++){ const a = i/8*Math.PI*2 + t; pos.setXYZ(i*2, _v.x, _v.y, _v.z); pos.setXYZ(i*2 + 1, cx + Math.cos(a)*rr, sh, cz + Math.sin(a)*rr); }
+    pos.needsUpdate = true; SCAN.cone.material.opacity = (t < 1.7 ? 0.35 : 0)*fade;
+    P.visible = true; P.material.opacity = fade; P.position.set(cx, 1.3, cz); P.quaternion.copy(camera.quaternion); P.translateX(-0.48); drawScan(t);
+    if (t > 5.2){ SCAN.t = -1; P.visible = false; crystalWire.material.opacity = 0; } }
+
+  composer.render();
+  requestAnimationFrame(frame);
+}
+document.fonts.load(`400 40px "Share Tech Mono"`).catch(() => {}).finally(() => { drawStatic(); drawGear(); drawAmmo(0); });
+drawStatic(); drawGear(); drawMark(S.mark);
+requestAnimationFrame(frame);
+window.__wrist = {S, setAim, fire, doorGo, hackGo, scanGo, gear, DOOR, HACK, SCAN};   // debug / capture hook
+} catch (e) { document.getElementById('err').textContent = '렌더 오류: ' + e.message; console.error(e); }
+</script>
