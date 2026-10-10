@@ -256,48 +256,60 @@ function drawRoller(x, y, size, al){ const n = TYPES.length, p = roll.pos, movin
 function corners(x, y, w, h, s, col){ g.strokeStyle = col; g.lineWidth = 1.5;
   [[x, y, 1, 1], [x + w, y, -1, 1], [x, y + h, 1, -1], [x + w, y + h, -1, -1]].forEach(([cx, cy, sx, sy]) => { g.beginPath(); g.moveTo(cx, cy + sy*s); g.lineTo(cx, cy); g.lineTo(cx + sx*s, cy); g.stroke(); }); }
 function label(s, x, y, al=1, size=12){ spaced(4); text(s, x, y, size, E(0.62*al)); spaced(0); }
+const EMIT_R = 158, EMIT_A = 30;                      // laser emitter on the cuff (like the puck's eye for the map panel)
+function laser(x1, y1, k, al){ if (k <= 0) return; const [ex, ey] = P(EMIT_R, EMIT_A), x = lerp(ex, x1, k), y = lerp(ey, y1, k);
+  g.strokeStyle = W(al); g.lineWidth = 1; g.beginPath(); g.moveTo(ex, ey); g.lineTo(x, y); g.stroke();
+  if (k < 1){ g.fillStyle = W(al); g.beginPath(); g.arc(x, y, 2.2, 0, Math.PI*2); g.fill(); } }
 function drawAim(T){
   if (hudK <= 0) return;
-  const kA = ease(clamp(hudK/0.5)), kT = ease(clamp((hudK - 0.25)/0.5)), rl = S.reload > 0;
+  // deploy clock, same order as the map: lasers → arc / corner brackets → glass panel opens vertically → contents
+  const e = T - AIMD.t0, vis = clamp(hudK/0.25);
+  const kL = ease(clamp(e/0.18)), kArc = ease(clamp((e - 0.12)/0.3)), kB = ease(clamp((e - 0.14)/0.2)), kG = ease(clamp((e - 0.26)/0.22)), kT = ease(clamp((e - 0.4)/0.25));
+  const rl = S.reload > 0;
   if (rl) AIMD.rl = true; else if (AIMD.rl){ AIMD.rl = false; countDec.scramble(); }
   const low = S.ammo <= 10 && !rl, pulse = low ? 0.55 + 0.45*Math.sin(T*9) : 1, shot = clamp(1 - (T - AIMD.pulse)/0.2);
-  const open = lerp(A0, A1, kA), frac = rl ? clamp(1 - S.reload/1.4) : S.ammo/S.max, aAm = lerp(A0, A1, frac), lit = Math.max(open, aAm);
-  // the arc: spent part a faint hairline, the magazine a 2px line with a soft halo; tenths ticked inside; capped at both ends
-  arc(R_A, A0, open, 1, H(0.3));
-  if (frac > 0){ arc(R_A, A0, lit, 7, H(0.07*pulse)); arc(R_A, A0, lit, 2, E(0.95*pulse)); }
-  for (let k=0;k<=10;k++){ const a = lerp(A0, A1, k/10); if (a < open - 0.01) break; tick(R_A - 7, a, k % 5 ? 3 : 7, 1, H(k % 5 ? 0.35 : 0.7)); }
-  tick(R_A, A0, 14, 1.5, E(0.9));
-  if (kA > 0.98){ tick(R_A, A1, 14, 1.5, E(0.9)); if (frac > 0) tick(R_A, aAm, 12 + shot*8, 2, W(0.7 + 0.3*shot)); }
-  if (kT <= 0) return;
-  g.globalAlpha = kT; { const [x, y] = P(R_A + 12, A0 + 2); label('AMMO', x, y, kT, 11); }
-  // read-out block, led off the arc's end (above the arc start on portrait screens)
   const bw = 168, bh = 96;
   const [ax, ay] = portraitUI ? P(R_A + 6, A0) : P(R_A + 6, A1);
   const bx = portraitUI ? ax - 30 : ax + 30, by = portraitUI ? ay - bh - 34 : ay - bh/2 - 6;
-  const draw = ease(clamp((hudK - 0.3)/0.4));
-  g.strokeStyle = E(0.55); g.lineWidth = 1; g.beginPath(); g.moveTo(ax, ay);
+  g.globalAlpha = vis;
+  // lasers: to both ends of the arc and the four corners of the read-out; they stay on faintly once deployed
+  const lasAl = 0.75*(1 - kT) + 0.18*kT;
+  [P(R_A, A0), P(R_A, A1), [bx, by], [bx + bw, by], [bx, by + bh], [bx + bw, by + bh]].forEach(([x, y], i) => laser(x, y, ease(clamp((e - i*0.02)/0.18)), lasAl));
+  { const [ex, ey] = P(EMIT_R, EMIT_A); g.fillStyle = W(0.9); g.beginPath(); g.arc(ex, ey, 3, 0, Math.PI*2); g.fill(); }
+  // the arc draws between the two laser points
+  const open = lerp(A0, A1, kArc), frac = rl ? clamp(1 - S.reload/1.4) : S.ammo/S.max, aAm = lerp(A0, A1, frac), lit = Math.max(open, aAm);
+  if (kArc > 0){ arc(R_A, A0, open, 1, H(0.3));
+    if (frac > 0){ arc(R_A, A0, lit, 7, H(0.07*pulse)); arc(R_A, A0, lit, 2, E(0.95*pulse)); }
+    for (let k=0;k<=10;k++){ const a = lerp(A0, A1, k/10); if (a < open - 0.01) break; tick(R_A - 7, a, k % 5 ? 3 : 7, 1, H(k % 5 ? 0.35 : 0.7)); }
+    tick(R_A, A0, 14, 1.5, E(0.9));
+    if (kArc > 0.98){ tick(R_A, A1, 14, 1.5, E(0.9)); if (frac > 0) tick(R_A, aAm, 12 + shot*8, 2, W(0.7 + 0.3*shot)); } }
+  // corner brackets, then the glass panel opens from its middle line, like the map's analysis panel
+  if (kB > 0){ g.globalAlpha = vis*kB; corners(bx, by, bw, bh, 10*kB, W(0.95)); }
+  if (kG > 0){ const hh = bh*kG; g.globalAlpha = vis; g.fillStyle = H(0.07); g.fillRect(bx + 2, by + bh/2 - hh/2, bw - 4, hh);
+    g.fillStyle = H(0.35*(1 - kT)); g.fillRect(bx + 2, by + bh/2 - hh/2, bw - 4, 1); g.fillRect(bx + 2, by + bh/2 + hh/2 - 1, bw - 4, 1); }
+  if (kT <= 0){ g.globalAlpha = 1; return; }
+  g.globalAlpha = vis*kT;
+  { const [x, y] = P(R_A + 12, A0 + 2); label('AMMO', x, y, kT, 11); }
+  g.strokeStyle = E(0.5); g.lineWidth = 1; g.beginPath(); g.moveTo(ax, ay);
   if (portraitUI){ g.lineTo(ax, by + bh + 14); g.lineTo(bx + 18, by + bh + 14); } else { g.lineTo(bx - 12, ay); g.lineTo(bx - 12, by + bh*0.62); g.lineTo(bx - 4, by + bh*0.62); }
-  g.stroke(); dot(R_A + 6, portraitUI ? A0 : A1, 2.4, true, W(1));
-  corners(bx, by, bw*draw, bh, 10, E(0.85));
-  // header: label + rule + round type (roller)
-  label('RND', bx + 10, by + 15, kT); g.fillStyle = H(0.35); g.fillRect(bx + 10, by + 26, (bw - 20)*draw, 1);
+  g.stroke();
+  // header · figure · data row
+  label('RND', bx + 10, by + 15, kT); g.fillStyle = H(0.35); g.fillRect(bx + 10, by + 26, bw - 20, 1);
   roll.target = (() => { let t = S.type + TYPES.length*Math.floor(roll.target/TYPES.length); while (t < roll.target - 1e-6) t += TYPES.length; return t; })();
-  drawRoller(bx + bw - 44, by + 15, 13, kT);
-  // the figure: count (decoded where it changes) over the magazine size
+  drawRoller(bx + bw - 44, by + 15, 13, vis*kT);
   countDec.set(rl ? '--' : String(S.ammo).padStart(2, '0'));
-  g.globalAlpha = kT; drawDecode(countDec, bx + 8 - S.recoil*2, by + 58, 50, kT*(low ? pulse : 1));
-  g.globalAlpha = kT; text('/' + S.max, bx + 72, by + 66, 16, H(0.6));
-  // data row: spare mags
-  magDec.set(String(S.mags)); label('MAG', bx + 112, by + 52, kT, 11); drawDecode(magDec, bx + 146, by + 52, 16, kT);
-  g.fillStyle = H(0.25); g.fillRect(bx + 10, by + bh - 12, (bw - 20)*draw, 1);
+  g.globalAlpha = vis*kT; drawDecode(countDec, bx + 8 - S.recoil*2, by + 58, 50, vis*kT*(low ? pulse : 1));
+  g.globalAlpha = vis*kT; text('/' + S.max, bx + 72, by + 66, 16, H(0.6));
+  magDec.set(String(S.mags)); label('MAG', bx + 112, by + 52, kT, 11); drawDecode(magDec, bx + 146, by + 52, 16, vis*kT);
+  g.fillStyle = H(0.25); g.fillRect(bx + 10, by + bh - 12, bw - 20, 1);
   // contextual rows stack under the block only while they matter (decode in, then fade)
   const rows = [];
   if (PEEK.drone > 0 || S.batt <= 20) rows.push([droneDec, 'P-07', 'BATT ' + Math.round(S.batt) + '  RD ' + S.dAmmo, Math.max(clamp(PEEK.drone/0.4), S.batt <= 20 ? 1 : 0)]); else droneDec.cur = droneDec.prev = '';
   const cool = GEAR.map((G, i) => G.left > 0 ? ['GRP', 'TAG', 'SHD'][i] + ' ' + Math.ceil(G.left) + 's' : '').filter(Boolean).join('  ');
   if (cool) rows.push([gearDec, 'GEAR', cool, 1]); else gearDec.cur = gearDec.prev = '';
   if (PEEK.mark > 0) rows.push([markDec, 'MARK', S.mark + '/3', clamp(PEEK.mark/0.4)]); else markDec.cur = markDec.prev = '';
-  rows.forEach(([dec, l, v, a], i) => { const ry = by + bh + 8 + i*20; dec.set(v); g.globalAlpha = kT*a;
-    label(l, bx + 10, ry, kT*a, 11); drawDecode(dec, bx + 56, ry, 14, kT*a); });
+  rows.forEach(([dec, l, v, a], i) => { const ry = by + bh + 8 + i*20; dec.set(v); g.globalAlpha = vis*kT*a;
+    label(l, bx + 10, ry, kT*a, 11); drawDecode(dec, bx + 56, ry, 14, vis*kT*a); });
   g.globalAlpha = 1; }
 
 // ---- bracelet actions: tracks freezing into a window on a short arc over the outer side of the wrist ----
@@ -315,42 +327,34 @@ function cipher(r, t, speed, seed, locked, w=6){ const n = 24, sh = Math.floor(t
   segBand(r, B0, B1, n, w, j => { const a = along((j + 0.5)/n), f = fall(a, BM, 44), inWin = Math.abs(a - BM) < 5;
     if (locked) return inWin ? W(1) : H(0.1*f);
     return ((j*7 + sh*3 + seed*11) % 5) < 2 ? E(0.15 + 0.6*f) : H(0.06 + 0.06*f); }, 0.3); }
-function drawDoorFull(t){ const PIN = [0.35, 0.55, 0.75, 0.95], R = [184, 200, 216, 232], fade = 1 - clamp((t - 2.2)/0.4);
+// first-time decode: only the pattern, drawn large — text would not read at this distance anyway
+function lockFlash(t, at, r0, r1){ const k = clamp(1 - (t - at)/0.35); if (t < at || k <= 0) return;      // the whole pattern flares once when it resolves
+  for (let r = r0; r <= r1; r += 6) arc(r, B0, B1, 4, W(0.18*k)); }
+function drawDoorFull(t){ const PIN = [0.35, 0.55, 0.75, 0.95], R = [180, 200, 220, 240], fade = clamp(t/0.15)*(1 - clamp((t - 2.2)/0.4));
   g.globalAlpha = fade;
-  R.forEach((r, i) => { const set = t > PIN[i]; cipher(r, t, 16 + i*6, i, set, 5);
-    const fl = set ? clamp(1 - (t - PIN[i])*4) : 0; if (fl > 0) arc(r, BM + 5, BM - 5, 12, W(0.45*fl)); });
-  windowMarks(BM, 6, 174, 242); hair(250, B0, B1, 1, 8);
-  statLabel('DOOR B-12'); statBig(t < 0.95 ? 'LOCKED' : 'OPEN'); statSub(PIN.filter(p => t > p).length + '/4 PINS'); g.globalAlpha = 1; }
-function drawHackFull(t){ const LOCK = [0.9, 1.6, 2.3], R = [186, 204, 222], fade = 1 - clamp((t - 3.0)/0.4);
+  R.forEach((r, i) => { const set = t > PIN[i]; cipher(r, t, 16 + i*6, i, set, 10);
+    const fl = set ? clamp(1 - (t - PIN[i])*4) : 0; if (fl > 0) arc(r, BM + 5, BM - 5, 18, W(0.5*fl)); });
+  windowMarks(BM, 6.5, 166, 254); hair(264, B0, B1, 1, 6); lockFlash(t, PIN[3], 176, 244); g.globalAlpha = 1; }
+function drawHackFull(t){ const LOCK = [0.9, 1.6, 2.3], R = [186, 210, 234], fade = clamp(t/0.15)*(1 - clamp((t - 3.0)/0.4));
   g.globalAlpha = fade;
-  R.forEach((r, i) => { const locked = t > LOCK[i]; cipher(r, t, 14 + i*6, i, locked, 7);
-    const fl = locked ? clamp(1 - (t - LOCK[i])*4) : 0; if (fl > 0) arc(r, BM + 5, BM - 5, 14, W(0.4*fl)); });
-  windowMarks(BM, 6, 176, 232); hair(240, B0, B1, 1, 8);
-  for (let j=0;j<8;j++){ const a = B0 - 5 - j*11.5 - (t*22 % 11.5); const [x, y] = P(256, a); g.globalAlpha = fade*fall(a, BM, 50); text(HEX[(Math.random()*16)|0], x, y, 14, H(0.6), 'center'); }
-  g.globalAlpha = fade; const n = LOCK.filter(l => t > l).length;
-  statLabel('NODE 04'); statBig(t > 2.45 ? 'ACCESS' : 'SYNC ' + n + '/3'); statSub(Math.floor(clamp(t/2.4)*20)*5 + '%'); g.globalAlpha = 1; }
-function drawScanFull(t){ const p = clamp(t/2.0), k = ease(clamp((t - 2.0)/0.4)), fade = 1 - clamp((t - 3.2)/0.4);
+  R.forEach((r, i) => { const locked = t > LOCK[i]; cipher(r, t, 14 + i*6, i, locked, 13);
+    const fl = locked ? clamp(1 - (t - LOCK[i])*4) : 0; if (fl > 0) arc(r, BM + 5, BM - 5, 22, W(0.45*fl)); });
+  // carrier noise riding outside the tracks until access
+  const sh = Math.floor(t*30); segBand(256, B0, B1, 48, 3, j => t > 2.45 ? H(0.06) : ((j*13 + sh*5) % 7) < 2 ? E(0.55*fall(along((j + 0.5)/48), BM, 50)) : null, 0.4);
+  windowMarks(BM, 6.5, 172, 248); hair(266, B0, B1, 1, 6); lockFlash(t, 2.45, 180, 240); g.globalAlpha = 1; }
+function drawScanFull(t){ const p = clamp(t/2.0), fade = clamp(t/0.15)*(1 - clamp((t - 3.2)/0.4));
   g.globalAlpha = fade;
   const rot = t < 2 ? t*70 : 140 + (1 - Math.exp(-(t - 2)*7))*12;
   for (let m=-24;m<=24;m++){ const a = BM + m*4 + (rot % 4); if (a > B0 || a < B1) continue; g.globalAlpha = fade*fall(a, BM, 44);
-    tick(210, a, m % 5 ? 8 : 18, m % 5 ? 1.5 : 2.5, E(0.85)); }
+    tick(226, a, m % 5 ? 12 : 28, m % 5 ? 2 : 3.5, E(0.9)); }
   g.globalAlpha = fade;
-  const spread = p*(B0 - BM); segBand(190, B0, B1, 24, 8, j => { const a = along((j + 0.5)/24); return Math.abs(a - BM) <= spread ? E(0.25 + 0.65*fall(a, BM, 50)) : H(0.08); }, 0.3);
-  windowMarks(BM, 5, 178, 232); hair(240, B0, B1, 1);
-  statLabel(p < 1 ? 'PHASE SCAN' : 'IDENTIFIED'); statBig(p < 1 ? 'SCANNING' : 'OBJECT 03');
-  statSub(p < 1 ? Math.floor(p*20)*5 + '%' : '위상 결정 파편 · RECIPE +1');
-  if (k > 0){ const [x, y] = P(R_STAT, BM - 9); g.globalAlpha = fade*k;
-    [['Fe-Ni', .62], ['PHASE', .28], ['POLY', .10]].forEach(([n, v], i) => { const yy = y + 38 + i*22; text(n, x, yy, 15, H(0.8));
-      for (let b=0;b<10;b++){ g.fillStyle = b < Math.round(v*10*k) ? E(1) : H(0.18); g.fillRect(x + 70 + b*13, yy - 3, 10, 5); } }); }
-  g.globalAlpha = 1; }
+  const spread = p*(B0 - BM); segBand(194, B0, B1, 24, 14, j => { const a = along((j + 0.5)/24); return Math.abs(a - BM) <= spread ? E(0.3 + 0.65*fall(a, BM, 50)) : H(0.08); }, 0.3);
+  windowMarks(BM, 5.5, 178, 252); hair(262, B0, B1, 1); lockFlash(t, 2.0, 186, 246); g.globalAlpha = 1; }
 
 // already-decoded targets skip the read-out entirely (see the LED chase / pulse ring in the loop)
 const drawDoor = drawDoorFull, drawHack = drawHackFull, drawScan = drawScanFull;
-function drawMini(al){ const len = (ACT.cached ? ACT_LEN_CACHED : ACT_LEN)[ACT.kind], p = clamp(ACT.t/(len*0.75)), fade = 1 - clamp((ACT.t - len + 0.3)/0.3);
-  g.globalAlpha = al*fade; const [x, y] = P(212, 79);
-  spaced(3); text({door: 'DOOR', hack: 'NODE', scan: 'SCAN'}[ACT.kind], x, y, 12, E(0.7)); spaced(0);
-  drawDecode(statDec, x + 52, y, 17, al*fade);
-  arc(204, 84, lerp(84, 72, p), 2, E(0.9)); arc(204, 84, 72, 1, H(0.25)); g.globalAlpha = 1; }
+function drawMini(al){ const len = ACT_LEN[ACT.kind], p = clamp(ACT.t/(len*0.75)), fade = 1 - clamp((ACT.t - len + 0.3)/0.3);   // folded: just a progress arc above the HUD
+  g.globalAlpha = al*fade; arc(214, 86, 72, 1, H(0.3)); arc(214, 86, lerp(86, 72, p), 3, E(0.95)); g.globalAlpha = 1; }
 // ---------------- world effects driven by the bracelet ----------------
 function beam(n){ const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.Float32BufferAttribute(new Array(n*6).fill(0), 3));
   const l = new THREE.LineSegments(geo, lineMat()); l.frustumCulled = false; l.renderOrder = 6; scene.add(l); return l; }
@@ -405,7 +409,7 @@ new ResizeObserver(resize).observe(stage); resize();
 // ---------------- loop ----------------
 let last = performance.now(), T = 0;
 function frame(now){
-  const dt = clamp((now - last)/1000, 0, 0.05); last = now; T += dt;   // rAF can stamp the first frame before `last`
+  const dt = frozen ? 0 : clamp((now - last)/1000, 0, 0.05); last = now; T += dt;   // rAF can stamp the first frame before `last`
   if (S.reload > 0){ S.reload -= dt; if (S.reload <= 0){ S.ammo = S.max; S.glitch = .1; } }
   S.recoil = Math.max(0, S.recoil - dt*9); S.flash = Math.max(0, S.flash - dt*18); S.glitch = Math.max(0, S.glitch - dt);
   GEAR.forEach(G => { if (G.left > 0 && G.left <= dt) G.ready = 0.8; G.left = Math.max(0, G.left - dt); G.ready = Math.max(0, G.ready - dt); });
@@ -431,7 +435,7 @@ function frame(now){
   rig.position.z += S.recoil*0.022; rig.position.y -= rl*0.05;
   rig.quaternion.copy(_qa); rig.rotateX(S.recoil*0.07 - rl*0.35); rig.rotateZ(rl*0.5);
   wrist.quaternion.copy(rig.quaternion).invert();                  // display faces the eye, centred on the cuff
-  const actFull = actK*(1 - aimK); wrist.scale.setScalar(lerp(1.0, 1.3, actFull)*(portrait ? lerp(1.45, 1.02, actFull) : 1));                     // action rings sit clear of the (closer) cuff
+  const actFull = actK*(1 - aimK); wrist.scale.setScalar(lerp(1.0, 1.42, actFull)*(portrait ? lerp(1.45, 1.1, actFull) : 1));                     // action rings sit clear of the (closer) cuff
   flash.material.opacity = S.flash; flash.material.rotation = Math.random()*6; flash.scale.setScalar(0.06 + S.flash*0.06);
   crystal.rotation.y += dt*0.4;
 
@@ -484,4 +488,5 @@ function frame(now){
 }
 drawMark(S.mark);
 requestAnimationFrame(frame);
-window.__wrist = {S, ACT, KNOWN, roll, GEAR, PEEK, setAim, fire, act, gear};   // capture / debug hook
+let frozen = false;
+window.__wrist = {S, ACT, KNOWN, roll, GEAR, PEEK, AIMD, setAim, fire, act, gear, now: () => T, freeze: v => { frozen = v; }};   // capture / debug hook   // capture / debug hook
