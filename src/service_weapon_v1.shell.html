@@ -1,0 +1,102 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Service Weapon Morph</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600&family=Share+Tech+Mono&display=swap">
+<style>
+/* built from src/service_weapon_v1.js — three.js is inlined, no CDN needed */
+:root{
+  --bg:#04070a; --panel:#0b1015; --line:#18222b; --fg:#c9d3dd; --muted:#7d8a97; --head:#eef6f4; --holo:#78ECD6;
+  --f-display:'Chakra Petch',system-ui,sans-serif; --f-mono:'Share Tech Mono',ui-monospace,monospace;
+  color-scheme:dark;
+}
+[hidden]{display:none!important}
+html,body{height:100%}
+body{background:var(--bg);color:var(--fg);font-family:var(--f-display);margin:0}
+.wrap{display:flex;flex-wrap:wrap;min-height:100%;box-sizing:border-box}
+.stage{flex:999 1 560px;min-width:0;position:relative;min-height:62vh;background:var(--bg)}
+#c{position:absolute;inset:0;width:100%;height:100%;display:block;cursor:grab;touch-action:none}
+#c:active{cursor:grabbing}
+#tag{position:absolute;left:16px;top:14px;font:400 13px var(--f-mono);letter-spacing:.18em;color:var(--holo);pointer-events:none}
+.hint{position:absolute;right:16px;top:14px;font:400 11px var(--f-mono);letter-spacing:.12em;color:var(--muted);pointer-events:none}
+#fallback{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:24px;text-align:center;color:var(--fg);font-size:14px}
+.rail{flex:1 1 300px;box-sizing:border-box;padding:24px 16px 28px;display:flex;flex-direction:column;gap:18px;border-left:1px solid var(--line);background:var(--panel)}
+h1{margin:0;font-size:24px;font-weight:600;color:var(--head);text-wrap:balance}
+p{margin:0;font-size:13px;line-height:1.6;color:#9aa6b2;max-width:46ch}
+.lab{font:400 11px var(--f-mono);letter-spacing:.14em;color:var(--muted);text-transform:uppercase}
+.row{display:flex;flex-wrap:wrap;gap:8px}
+button{appearance:none;border:1px solid #24313a;background:#0e151b;color:var(--fg);font:500 13px var(--f-display);padding:0 14px;height:44px;min-width:44px;cursor:pointer}
+button:hover{border-color:var(--holo);color:#fff}
+button:focus-visible{outline:2px solid var(--holo);outline-offset:2px}
+button[aria-pressed="true"]{border-color:var(--holo);color:var(--holo)}
+button[data-t="1"][aria-pressed="true"]{border-color:#FFB45A;color:#FFB45A}
+button[data-t="2"][aria-pressed="true"]{border-color:#7FA8FF;color:#7FA8FF}
+kbd{font:400 11px var(--f-mono);color:var(--muted);margin-left:6px}
+.seq{display:grid;grid-template-columns:auto 1fr;gap:8px 12px;font-size:12.5px;line-height:1.55}
+.seq span:nth-child(odd){font-family:var(--f-mono);white-space:nowrap}
+.c0{color:#78ECD6}.c1{color:#FFB45A}.c2{color:#7FA8FF}
+#err{color:#ff8a80;font-size:12px}
+.dock{position:absolute;left:0;right:0;bottom:0;display:none;gap:6px;padding:16px 12px calc(10px + env(safe-area-inset-bottom));overflow-x:auto;background:linear-gradient(transparent,rgba(4,7,10,.9))}
+.dock button{flex:0 0 auto;min-width:56px;background:rgba(14,21,27,.85)}
+@media (max-width: 899px){ .stage{flex-basis:100%;height:100svh;min-height:0} .dock{display:flex} .hint{display:none} #tag{top:max(14px,env(safe-area-inset-top))} }
+@media (min-width: 900px){ .wrap{height:100vh;flex-wrap:nowrap} .stage{min-height:0} .rail{overflow-y:auto;max-width:380px} }
+</style>
+<div class="wrap">
+  <div class="stage">
+    <canvas id="c" aria-label="서비스 웨폰 3D 미리보기. 드래그로 회전, 탭으로 사격"></canvas>
+    <div id="tag">STD · 표준탄</div>
+    <div class="hint">DRAG 회전 · CLICK 사격</div>
+    <div id="fallback" hidden></div>
+    <div class="dock" aria-label="터치 조작">
+      <button data-t="0" aria-pressed="true">STD</button>
+      <button data-t="1" aria-pressed="false">AP</button>
+      <button data-t="2" aria-pressed="false">EMP</button>
+      <button data-a="fire">사격</button>
+      <button data-a="reload">재장전</button>
+      <button data-v="0" aria-pressed="true">3/4</button>
+      <button data-v="1" aria-pressed="false">측면</button>
+      <button data-v="2" aria-pressed="false">시선</button>
+    </div>
+  </div>
+  <aside class="rail">
+    <h1>서비스 웨폰 · 탄종 변형</h1>
+    <p>권총 그립과 프레임은 그대로이고, 탄종을 바꾸면 위쪽 셸이 조각으로 떠올랐다가 새 실루엣으로 다시 맞물려요. 실루엣만 봐도 지금 탄종을 알 수 있게 하는 게 목표예요.</p>
+
+    <div class="lab">탄종</div>
+    <div class="row">
+      <button data-t="0" aria-pressed="true">STD 표준탄<kbd>1</kbd></button>
+      <button data-t="1" aria-pressed="false">AP 관통탄<kbd>2</kbd></button>
+      <button data-t="2" aria-pressed="false">EMP<kbd>3</kbd></button>
+      <button data-a="next">다음<kbd>T</kbd></button>
+    </div>
+    <div class="row">
+      <button data-a="fire">사격<kbd>F</kbd></button>
+      <button data-a="reload">재장전<kbd>R</kbd></button>
+    </div>
+    <div class="lab">시점</div>
+    <div class="row">
+      <button data-v="0" aria-pressed="true">3/4</button>
+      <button data-v="1" aria-pressed="false">측면</button>
+      <button data-v="2" aria-pressed="false">시선<kbd>C</kbd></button>
+      <button data-a="auto" aria-pressed="true">자동 회전</button>
+    </div>
+
+    <div class="lab">형태</div>
+    <div class="seq">
+      <span class="c0">STD</span><span>컴팩트한 2분할 슬라이드. 가운데 가는 이음새만 빛나요. 18발</span>
+      <span class="c1">AP</span><span>슬라이드가 좌우로 갈라져 앞으로 길게 뻗은 레일이 되고, 가운데 빛나는 채널 위로 방열 브리지 3개와 긴 조준경이 올라와요. 6발, 반동 큼, 직선 궤적</span>
+      <span class="c2">EMP</span><span>몸통이 짧고 높아지고, 두꺼운 총열에 코일 링 3개와 방전 프롱 3개가 펼쳐져요. 프롱 사이로 전기가 튀어요. 4발, 충격파</span>
+    </div>
+    <div class="lab">변형</div>
+    <div class="seq">
+      <span>고정</span><span>그립 · 방아쇠 · 프레임 · 뒷면 탄수 화면 — 손 애니메이션 공유</span>
+      <span>이동</span><span>셸 조각 20개가 바깥으로 떠오름 → 회전 → 새 자리에 안착 (0.85초, 순차)</span>
+      <span>표시</span><span>스윕 링이 총열을 따라 지나가고, 이음새·탄수 화면이 탄종 색으로 바뀜. 변형 중 사격 불가</span>
+    </div>
+    <div id="err" role="status"></div>
+  </aside>
+</div>
+<script>
+/*BUNDLE*/
+</script>
