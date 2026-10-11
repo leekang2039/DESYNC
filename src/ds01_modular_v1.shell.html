@@ -1,0 +1,90 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DS-01 Modular</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600&family=IBM+Plex+Sans+KR:wght@400;500&family=Share+Tech+Mono&display=swap">
+<style>
+/* built from src/ds01_modular_v1.js — three.js is inlined, no CDN needed */
+:root{
+  --bg:#1a1d21; --panel:#121417; --line:#2a2e34; --fg:#d6dbe0; --muted:#8a939c; --head:#f3f0ea; --acc:#ff8a3a;
+  --f-display:'Chakra Petch',system-ui,sans-serif; --f-body:'IBM Plex Sans KR','Apple SD Gothic Neo','Malgun Gothic',system-ui,sans-serif; --f-mono:'Share Tech Mono',ui-monospace,monospace;
+  color-scheme:dark;
+}
+[hidden]{display:none!important}
+html,body{height:100%}
+body{background:var(--bg);color:var(--fg);font-family:var(--f-body);margin:0}
+.wrap{display:flex;flex-wrap:wrap;min-height:100%;box-sizing:border-box}
+.stage{flex:999 1 560px;min-width:0;position:relative;min-height:62vh;background:var(--bg)}
+#c{position:absolute;inset:0;width:100%;height:100%;display:block;cursor:grab;touch-action:none}
+.cap{position:absolute;left:16px;top:14px;right:16px;display:flex;flex-direction:column;gap:4px;pointer-events:none}
+#fname{font:600 18px var(--f-display);color:var(--acc);letter-spacing:.04em}
+#fdesc{font-size:13px;color:#b9c1c8;max-width:52ch;line-height:1.5}
+#fallback{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:24px;text-align:center;font-size:14px}
+.rail{flex:1 1 300px;box-sizing:border-box;padding:24px 16px 28px;display:flex;flex-direction:column;gap:16px;border-left:1px solid var(--line);background:var(--panel)}
+h1{margin:0;font:600 23px var(--f-display);color:var(--head);text-wrap:balance}
+p{margin:0;font-size:13.5px;line-height:1.6;color:#a3adb6;max-width:48ch}
+.lab{font:400 11px var(--f-mono);letter-spacing:.14em;color:var(--muted);text-transform:uppercase}
+.row{display:flex;flex-wrap:wrap;gap:8px}
+button{appearance:none;border:1px solid #2e343b;background:#181b1f;color:var(--fg);font:500 13px var(--f-body);padding:0 12px;height:44px;min-width:44px;cursor:pointer}
+button:hover{border-color:var(--acc);color:#fff}
+button:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+button[aria-pressed="true"]{border-color:var(--acc);color:var(--acc)}
+kbd{font:400 11px var(--f-mono);color:var(--muted);margin-left:6px}
+.seq{display:grid;grid-template-columns:auto 1fr;gap:6px 12px;font-size:12.5px;line-height:1.5}
+.seq span:nth-child(odd){font-family:var(--f-mono);color:var(--acc);white-space:nowrap}
+#err{color:#ff8a80;font-size:12px}
+.dock{position:absolute;left:0;right:0;bottom:0;display:none;gap:6px;padding:16px 12px calc(10px + env(safe-area-inset-bottom));overflow-x:auto;background:linear-gradient(transparent,rgba(18,20,23,.9))}
+.dock button{flex:0 0 auto;background:rgba(24,27,31,.88)}
+@media (max-width: 899px){ .stage{flex-basis:100%;height:100svh;min-height:0} .dock{display:flex} .cap{top:max(14px,env(safe-area-inset-top))} #fdesc{font-size:12px} }
+@media (min-width: 900px){ .wrap{height:100vh;flex-wrap:nowrap} .stage{min-height:0} .rail{overflow-y:auto;max-width:380px} }
+</style>
+<div class="wrap">
+  <div class="stage">
+    <canvas id="c" aria-label="DS-01 모듈형 무기 3D 미리보기. 드래그로 회전"></canvas>
+    <div class="cap"><div id="fname">DS-01 · 권총</div><div id="fdesc"></div></div>
+    <div id="fallback" hidden></div>
+    <div class="dock" aria-label="형태 선택">
+      <button data-f="0" aria-pressed="true">권총</button><button data-f="1">LANCE</button><button data-f="2">TWIN</button><button data-f="3">CANNON</button>
+      <button data-f="4">COIL</button><button data-f="5">GRAVITY</button><button data-f="6">DESYNC</button><button data-f="7">분해</button>
+    </div>
+  </div>
+  <aside class="rail">
+    <h1>DS-01 · 모듈형 재구성 무기</h1>
+    <p>손잡이와 방아쇠만 고정이고, 그 위의 모든 부분이 모듈 17개로 나뉘어요. 형태를 바꾸면 모듈이 떠올라 회전한 뒤 다른 배치로 다시 결합해요. 새 부품은 생기지 않고, 권총 상태에서 안에 숨어 있던 캡슐·코일·코어가 형태에 따라 밖으로 나와요.</p>
+    <div class="lab">형태</div>
+    <div class="row">
+      <button data-f="0" aria-pressed="true">권총<kbd>1</kbd></button>
+      <button data-f="1">LANCE<kbd>2</kbd></button>
+      <button data-f="2">TWIN<kbd>3</kbd></button>
+      <button data-f="3">CANNON<kbd>4</kbd></button>
+      <button data-f="4">COIL<kbd>5</kbd></button>
+      <button data-f="5">GRAVITY<kbd>6</kbd></button>
+      <button data-f="6">DESYNC<kbd>7</kbd></button>
+      <button data-f="7">분해<kbd>8</kbd></button>
+      <button data-a="next">다음<kbd>T</kbd></button>
+    </div>
+    <div class="lab">시점</div>
+    <div class="row"><button data-v="0" aria-pressed="true">3/4</button><button data-v="1">측면</button><button data-v="2">정면</button><button data-v="3">위<kbd>C</kbd></button><button data-a="auto" aria-pressed="true">자동 회전</button></div>
+    <div class="lab">모듈 17개</div>
+    <div class="seq">
+      <span>외장 8</span><span>RB 후면 블록 · RT DS-01 판 · UB 상단 중앙 · UA 상단 전방 · LB 하단 후방 · LA 하단 전방 · MU 총구 위 · ML 총구 아래</span>
+      <span>판재 5</span><span>RL 상단 레일 · G1~G4 아가미 판</span>
+      <span>내장 4</span><span>CP 에너지 캡슐 · C1/C2 코일 · BR 총열 코어 · VO 보이드 코어 (권총 상태에서는 몸체 안에 수납)</span>
+      <span>고정</span><span>손잡이 · 방아쇠울 · 방아쇠 · 하부 프레임</span>
+    </div>
+    <div class="lab">형태 아이디어</div>
+    <div class="seq">
+      <span>LANCE</span><span>일렬 재배치 → 긴 창형, 가운데 캡슐 노출</span>
+      <span>TWIN</span><span>상하 분리 → 굵은 이중 총열, 판재가 차폐판</span>
+      <span>CANNON</span><span>축 둘레로 결집 → 짧고 굵은 포신, 코일이 총구 링</span>
+      <span>COIL</span><span>조개처럼 개방 → 코어 일렬 노출, 총구가 프롱</span>
+      <span>GRAVITY</span><span>4방향 프롱 + 보이드 코어 (간츠 느낌)</span>
+      <span>DESYNC</span><span>권총 배치 그대로 어긋나 부유</span>
+    </div>
+    <div id="err" role="status"></div>
+  </aside>
+</div>
+<script>
+/*BUNDLE*/
+</script>
