@@ -27,9 +27,9 @@ const scene = new THREE.Scene(); scene.background = new THREE.Color(0x1a1d21); s
 scene.environment = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(), 0.04).texture; scene.environmentIntensity = 0.55;
 const camera = new THREE.PerspectiveCamera(30, 1, 0.005, 40); scene.add(camera);
 scene.add(new THREE.HemisphereLight(0xc9d6e0, 0x101215, 0.45));
-const key = new THREE.DirectionalLight(0xfff4ea, 1.7); key.position.set(1.2, 2.4, 1.6); scene.add(key);
+const key = new THREE.DirectionalLight(0xfff4ea, 1.4); key.position.set(1.2, 2.4, 1.6); scene.add(key);
 const rim = new THREE.DirectionalLight(0xa8c2dc, 0.8); rim.position.set(-1.5, 0.8, -1.2); scene.add(rim);
-const warm = new THREE.PointLight(0xff8a3a, 0.6, 1.4, 2); warm.position.set(0.25, 1.15, -0.25); scene.add(warm);
+const warm = new THREE.PointLight(0xff8a3a, 0.15, 0.8, 2); warm.position.set(0.0, 1.35, -0.5); scene.add(warm);
 
 // ---------------- studio plinth ----------------
 const G0 = new THREE.Vector3(0, 1.2, 0);
@@ -48,7 +48,7 @@ const grungeT = (() => { const c = document.createElement('canvas'); c.width = c
   for (let i=0;i<80;i++){ g.strokeStyle = `rgba(110,110,110,${0.15 + r()*0.25})`; g.lineWidth = 0.7; g.beginPath(); const x = r()*512, y = r()*512, a = r()*Math.PI*2, L = 10 + r()*40; g.moveTo(x, y); g.lineTo(x + Math.cos(a)*L, y + Math.sin(a)*L); g.stroke(); }
   const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(3, 3); t.colorSpace = THREE.SRGBColorSpace; return t; })();
 const M = {
-  white: new THREE.MeshPhysicalMaterial({color: 0xd6d9dc, map: grungeT, roughness: .48, metalness: .05, clearcoat: .35, clearcoatRoughness: .4}),
+  white: new THREE.MeshPhysicalMaterial({color: 0xc4c8cc, map: grungeT, roughness: .48, metalness: .05, clearcoat: .35, clearcoatRoughness: .4}),
   black: new THREE.MeshStandardMaterial({color: 0x191c20, roughness: .55, metalness: .45}),
   gun:   new THREE.MeshStandardMaterial({color: 0x3c4148, roughness: .3, metalness: .85}),
   copper:new THREE.MeshStandardMaterial({color: 0xb5713a, roughness: .28, metalness: .95}),
@@ -223,7 +223,7 @@ FORMS.push({id: 'EXPLODED', name: '분해 · 모듈 펼침', desc: '손잡이·�
 // ---------------- morph state ----------------
 const cur = {}, from = {}, dirs = {};
 IDS.forEach(id => { const b = PISTOL[id]; cur[id] = {p: b.p.clone(), q: b.q.clone(), s: b.s.clone()}; from[id] = {p: new THREE.Vector3(), q: new THREE.Quaternion(), s: new THREE.Vector3()}; dirs[id] = new THREE.Vector3(); });
-const S = {form: 0, to: 0, t: 1, dur: RM ? 0.3 : 1.15, yaw: 58*D2R, pitch: 14*D2R, view: 0, auto: !RM, drag: null, freeze: false, clock: 0};
+const S = {form: 0, to: 0, t: 1, dur: RM ? 0.3 : 1.15, yaw: 118*D2R, pitch: 14*D2R, view: 0, auto: !RM, drag: null, freeze: false, clock: 0};
 const apply = () => IDS.forEach(id => { const o = MOD[id].obj, c = cur[id]; o.position.copy(c.p); o.quaternion.copy(c.q); o.scale.copy(c.s); });
 apply();
 const labels = new THREE.Group(); gun.add(labels);
@@ -241,13 +241,13 @@ function setForm(i){ i = ((i % FORMS.length) + FORMS.length) % FORMS.length; if 
 
 // ---------------- render setup ----------------
 const composer = new EffectComposer(renderer); composer.addPass(new RenderPass(scene, camera));
-const bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.5, 0.35, 0.9); composer.addPass(bloom); composer.addPass(new OutputPass());
+const bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.45, 0.3, 1.0); composer.addPass(bloom); composer.addPass(new OutputPass());
 function resize(){ const w = stage.clientWidth, h = stage.clientHeight; renderer.setSize(w, h, false); composer.setSize(w, h); bloom.setSize(w, h); camera.aspect = w/h; camera.updateProjectionMatrix(); }
 new ResizeObserver(resize).observe(stage); resize();
-const VIEWS = [{name: '3/4', yaw: 58, pitch: 14, R: 0.62}, {name: '측면', yaw: 90, pitch: 2, R: 0.6}, {name: '정면', yaw: 18, pitch: 8, R: 0.55}, {name: '위', yaw: 90, pitch: 70, R: 0.6}];
+const VIEWS = [{name: '3/4', yaw: 118, pitch: 14, R: 0.56}, {name: '측면', yaw: 90, pitch: 2, R: 0.54}, {name: '정면', yaw: 160, pitch: 8, R: 0.5}, {name: '위', yaw: 90, pitch: 70, R: 0.56}];
 const T = new THREE.Vector3();
-function placeCamera(){ const v = VIEWS[S.view], half = Math.tan(camera.fov*D2R/2), span = FORMS[S.to].id === 'EXPLODED' ? 0.2 : 0.17;
-  const R = Math.max(v.R, span/(half*Math.min(1, camera.aspect)) + 0.05);
+function placeCamera(){ const v = VIEWS[S.view], half = Math.tan(camera.fov*D2R/2), span = FORMS[S.to].id === 'EXPLODED' ? 0.22 : 0.16;
+  const R = Math.max(v.R, span/(half*Math.min(1, camera.aspect)) + 0.02);
   T.set(0, G0.y + 0.03, -0.08);
   camera.position.set(T.x + R*Math.sin(S.yaw)*Math.cos(S.pitch), T.y + R*Math.sin(S.pitch), T.z + R*Math.cos(S.yaw)*Math.cos(S.pitch)); camera.lookAt(T); }
 function setView(i){ S.view = i; S.yaw = VIEWS[i].yaw*D2R; S.pitch = VIEWS[i].pitch*D2R; syncUI(); }
@@ -283,7 +283,7 @@ function frame(now){ requestAnimationFrame(frame);
   MOD.VO.obj.children[2].scale.setScalar(1 + Math.sin(S.clock*3)*0.08);
   const glowK = 1 + pulse*2.2 + (id === 'DESYNC' && settled ? (Math.random() < 0.08 ? -0.6 : 0) : 0) + Math.sin(S.clock*2.4)*0.08;
   M.glow.color.copy(GLOW_BASE).multiplyScalar(glowK); M.glowS.color.set(0xff9a40).multiplyScalar(glowK*1.2);
-  warm.intensity = 0.6 + pulse*1.6;
+  warm.intensity = 0.15 + pulse*0.6;
   // labels only in the exploded layout
   const showL = id === 'EXPLODED' ? ease(clamp((S.t - 0.6)/0.4)) : 0;
   IDS.forEach(m => { const sp = MOD[m].label3, o = MOD[m].obj; sp.material.opacity = showL; sp.visible = showL > 0.01; sp.position.copy(o.position).add(tmp.set(0, 0.034, 0)); });
